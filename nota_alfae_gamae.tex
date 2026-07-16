@@ -1,0 +1,370 @@
+\documentclass[11pt,a4paper]{article}
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage[brazil]{babel}
+\usepackage[margin=2.4cm]{geometry}
+\usepackage{amsmath,amssymb,booktabs,siunitx,listings,xcolor}
+\usepackage[colorlinks,linkcolor=black,citecolor=black]{hyperref}
+
+\sisetup{output-decimal-marker={,}}
+\lstset{
+  basicstyle=\ttfamily\footnotesize, frame=single, framesep=4pt,
+  rulecolor=\color{black!30}, backgroundcolor=\color{black!3},
+  numbers=left, numberstyle=\tiny\color{black!50}, xleftmargin=2.2em,
+  breaklines=true, captionpos=b,
+}
+
+\newcommand{\we}{\omega_e}
+\newcommand{\wexe}{\omega_e x_e}
+\newcommand{\weye}{\omega_e y_e}
+\newcommand{\alfae}{\alpha_e}
+\newcommand{\gamae}{\gamma_e}
+
+\title{Sobre a impossibilidade de reproduzir os valores de $\alfae$ e $\gamae$
+do arquivo \texttt{J=0.txt}}
+\author{Nota técnica --- porte de \texttt{DVR.f} para Python}
+\date{\today}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+\noindent
+Os arquivos de referência \texttt{J=0.txt} e \texttt{J=1.txt}, produzidos pelo
+programa legado \texttt{DVR.f}, imprimem cinco constantes espectroscópicas cada
+um: \texttt{WE}, \texttt{ALFAE}, \texttt{WEXE}, \texttt{GAMAE} e \texttt{WEYE}.
+O porte em Python reproduz \texttt{WE}, \texttt{WEXE}, \texttt{WEYE} nos dois
+arquivos e \texttt{ALFAE}, \texttt{GAMAE} do \texttt{J=1.txt}. Não reproduz
+\texttt{ALFAE} e \texttt{GAMAE} do \texttt{J=0.txt}. Esta nota demonstra que
+esses dois valores \emph{não podem} ser reproduzidos --- não por limitação do
+porte, mas porque (i) a fórmula que o \texttt{DVR.f} usa é identicamente nula
+quando alimentada com os dados de um único $J$, e (ii) os valores impressos
+provêm de constantes \emph{fixas no código-fonte}, resíduo de uma execução
+anterior com outra molécula. Argumentos algébricos, numéricos e físicos são
+apresentados. Conclui-se que os valores $\alfae=-0{,}679$ e
+$\gamae=0{,}0534$ do \texttt{J=0.txt} são espúrios e devem ser descartados.
+\end{abstract}
+
+\section{Os dados de referência}
+
+Cada arquivo termina com um bloco de constantes. Reproduzidos integralmente:
+
+\begin{center}
+\begin{tabular}{lrr}
+\toprule
+Constante (\si{\per\centi\meter}) & \texttt{J=0.txt} & \texttt{J=1.txt} \\
+\midrule
+\texttt{WE}    & 397,34944605871459 & 397,34003799225286 \\
+\texttt{WEXE}  & 2,3037266539718138 & 2,3038459454288969 \\
+\texttt{WEYE}  & $-4{,}62179069{\times}10^{-3}$ & $-4{,}62249660{\times}10^{-3}$ \\
+\midrule
+\texttt{ALFAE} & $\mathbf{-0{,}67893964584482902}$ & $4{,}70736802{\times}10^{-3}$ \\
+\texttt{GAMAE} & $\mathbf{+5{,}34163354{\times}10^{-2}}$ & $-6{,}12243828{\times}10^{-5}$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\noindent
+As três primeiras linhas são consistentes entre os dois arquivos, como se
+espera: a rotação $J=1$ perturba muito pouco a estrutura vibracional. As duas
+últimas diferem por um fator de $\sim\!144$ em $\alfae$ e $\sim\!872$ em
+$\gamae$, e ainda \emph{trocam de sinal}. Essa discrepância é o objeto desta
+nota.
+
+\section{O que o programa legado calcula}
+
+O trecho relevante de \texttt{DVR.f} (linhas 342--364) é:
+
+\begin{lstlisting}[caption={\texttt{DVR.f}, linhas 342--364 (indentação original).},
+                   firstnumber=342]
+      we=29.434588840876046
+      wexe=1.99859909076558900E-002
+      weye= 2.14735624358330610E-005
+      alfae=1.0d0/8.0d0*(-12.0d0*(W(2)-W(1))*219474.631D0+4.0d0*
+     *(W(3)-W(1))*219474.631D0+4.0d0*we-23.0d0*weye)
+      gamae=1.0d0/4.0d0*(-2.0d0*(W(2)-W(1))*219474.631D0+(W(3)-W(1))*
+     *219474.631D0+2.0d0*wexe-9.0d0*weye)
+
+      we=1.0d0/24.0d0*(141.0d0*(W(2)-W(1))-93.0d0*(W(3)-W(1))+
+     *23.0d0*(W(4)-W(1)))
+      wexe=1.0d0/4.0d0*(13.0d0*(W(2)-W(1))-11.0d0*(W(3)-W(1))+
+     *3.0d0*(W(4)-W(1)))
+      weye=1.0d0/6.0d0*(3.0d0*(W(2)-W(1))-3.0d0*(W(3)-W(1))+(W(4)-W(1)))
+\end{lstlisting}
+
+\noindent
+Dois pontos são decisivos:
+
+\begin{enumerate}
+\item Nas linhas 342--344, \texttt{we}, \texttt{wexe} e \texttt{weye} recebem
+      \textbf{literais fixos no código-fonte}. Não são calculados.
+\item Nas linhas 347--353, \texttt{alfae} e \texttt{gamae} são construídos com
+      esses literais \emph{mais} os espaçamentos $W$ da execução corrente. Só
+      \emph{depois} (linhas 356--364) as três primeiras constantes são
+      recalculadas a partir de $W$ e impressas.
+\end{enumerate}
+
+\noindent
+Ou seja: os \texttt{WE}/\texttt{WEXE}/\texttt{WEYE} impressos e os
+\texttt{ALFAE}/\texttt{GAMAE} impressos \textbf{não vêm da mesma fonte}. Os
+primeiros são da execução corrente; os segundos misturam a execução corrente
+com o que estivesse escrito nas linhas 342--344 no momento da compilação.
+
+\subsection{O fluxo de trabalho implícito}
+
+Definindo os espaçamentos
+\begin{equation}
+  d_k \;=\; \bigl(E_k - E_0\bigr)\times 219474{,}631,
+  \qquad k = 1,2,3,
+  \label{eq:dk}
+\end{equation}
+as linhas 347--353 implementam
+\begin{align}
+  \alfae &= \tfrac{1}{8}\bigl(-12\,d_1 + 4\,d_2 + 4\,\we^{\ast} - 23\,\weye^{\ast}\bigr),
+  \label{eq:alfae}\\
+  \gamae &= \tfrac{1}{4}\bigl(-2\,d_1 + d_2 + 2\,\wexe^{\ast} - 9\,\weye^{\ast}\bigr),
+  \label{eq:gamae}
+\end{align}
+onde $d_k$ são da execução corrente e $\we^{\ast},\wexe^{\ast},\weye^{\ast}$ são
+os literais. Essa é a Eq.~7 de Silva \emph{et al.}, \emph{J.~Mol.~Model.}
+\textbf{24}, 235 (2018), cujo pareamento correto é: $d_k$ da escada
+\textbf{$J=1$} e $\we^{\ast},\wexe^{\ast},\weye^{\ast}$ da escada
+\textbf{$J=0$}. O uso pretendido, portanto, era:
+
+\begin{enumerate}
+\item compilar e rodar com $J=0$;
+\item copiar o \texttt{WE}/\texttt{WEXE}/\texttt{WEYE} resultante para as linhas
+      342--344 do fonte;
+\item recompilar e rodar com $J=1$.
+\end{enumerate}
+
+\noindent
+O \texttt{ALFAE}/\texttt{GAMAE} do passo 3 é o resultado válido. O do passo 1 é
+lido de literais que ninguém atualizou.
+
+\section{Argumento 1: a fórmula é identicamente nula para um único $J$}
+
+Este é o argumento central. As linhas 356--364 definem, a partir dos
+\emph{mesmos} $d_k$:
+\begin{align}
+  \we   &= \tfrac{1}{24}\bigl(141\,d_1 - 93\,d_2 + 23\,d_3\bigr), \label{eq:we}\\
+  \wexe &= \tfrac{1}{4}\bigl(13\,d_1 - 11\,d_2 + 3\,d_3\bigr),    \label{eq:wexe}\\
+  \weye &= \tfrac{1}{6}\bigl(3\,d_1 - 3\,d_2 + d_3\bigr).         \label{eq:weye}
+\end{align}
+
+\noindent
+Suponha que se queira calcular $\alfae$ para $J=0$ ``honestamente'', isto é,
+alimentando \eqref{eq:alfae} com as constantes da própria escada $J=0$
+($\we^{\ast}=\we$, $\weye^{\ast}=\weye$). Substituindo \eqref{eq:we} e
+\eqref{eq:weye}:
+\begin{equation}
+  4\,\we - 23\,\weye
+  = \frac{141\,d_1 - 93\,d_2 + 23\,d_3}{6}
+  - \frac{69\,d_1 - 69\,d_2 + 23\,d_3}{6}
+  = \frac{72\,d_1 - 24\,d_2}{6}
+  = 12\,d_1 - 4\,d_2 .
+\end{equation}
+Logo
+\begin{equation}
+  \boxed{\;
+  \alfae = \tfrac{1}{8}\bigl(-12\,d_1 + 4\,d_2 + 12\,d_1 - 4\,d_2\bigr) \equiv 0
+  \;}
+  \label{eq:zero_alfae}
+\end{equation}
+\emph{para quaisquer} $d_1, d_2, d_3$. Analogamente, de \eqref{eq:wexe} e
+\eqref{eq:weye},
+\begin{equation}
+  2\,\wexe - 9\,\weye
+  = \frac{39\,d_1 - 33\,d_2 + 9\,d_3}{6} - \frac{27\,d_1 - 27\,d_2 + 9\,d_3}{6}
+  = 2\,d_1 - d_2 ,
+\end{equation}
+e portanto
+\begin{equation}
+  \boxed{\;
+  \gamae = \tfrac{1}{4}\bigl(-2\,d_1 + d_2 + 2\,d_1 - d_2\bigr) \equiv 0 .
+  \;}
+  \label{eq:zero_gamae}
+\end{equation}
+
+\noindent
+As identidades \eqref{eq:zero_alfae} e \eqref{eq:zero_gamae} são exatas, não
+aproximadas: os coeficientes $141, -93, 23, 13, -11, 3, \ldots$ das
+Eqs.~\eqref{eq:we}--\eqref{eq:weye} foram construídos justamente para que
+$4\we-23\weye$ e $2\wexe-9\weye$ cancelem os termos $-12d_1+4d_2$ e $-2d_1+d_2$
+da Eq.~7. A Eq.~7 mede a \emph{diferença} entre duas escadas; alimentada com uma
+escada só, ela mede a diferença de algo consigo mesmo.
+
+\medskip
+\noindent
+\textbf{Consequência imediata:} qualquer valor não nulo de \texttt{ALFAE} no
+\texttt{J=0.txt} \emph{necessariamente} provém de constantes externas à escada
+$J=0$. O valor $-0{,}679$ não pode ser derivado dos dados que o próprio arquivo
+contém. Isto encerra a questão da reprodutibilidade: não existe cálculo, correto
+ou incorreto, sobre os dados de $J=0$ que produza aquele número.
+
+\medskip
+\noindent
+O porte em Python confirma numericamente a identidade --- a rotina imprime, para
+$J=0$:
+\begin{center}
+\ttfamily
+ALFAE(cm-1)= 3.9371630955465e-13 \qquad GAMAE(cm-1)= -2.9642954757492e-14
+\end{center}
+que é zero dentro do ruído de arredondamento de ponto flutuante em precisão
+dupla ($\sim\!10^{-16}$ relativo a $\we\approx400$).
+
+\section{Argumento 2: os literais do fonte não geram o valor impresso}
+
+Se $-0{,}679$ vem de literais, quais? Invertendo \eqref{eq:alfae} e
+\eqref{eq:gamae} com os $d_k$ do próprio \texttt{J=0.txt}
+($d_1 = 392{,}72696119$, $d_2 = 780{,}80487309$):
+\begin{align}
+  4\,\we^{\ast} - 23\,\weye^{\ast} &= 8\,\alfae + 12\,d_1 - 4\,d_2 = 1584{,}0725248, \\
+  2\,\wexe^{\ast} - 9\,\weye^{\ast} &= 4\,\gamae + 2\,d_1 - d_2 = 4{,}8627146 .
+\end{align}
+São duas equações para três incógnitas; o sistema é indeterminado. Mas os
+literais que \emph{estão} no fonte commitado (linhas 342--344),
+$\we^{\ast}=29{,}4345888$, $\wexe^{\ast}=1{,}9986{\times}10^{-2}$,
+$\weye^{\ast}=2{,}1474{\times}10^{-5}$, dão
+\begin{equation}
+  \alfae = -183{,}9708 , \qquad \gamae = -1{,}1523 ,
+\end{equation}
+que não são os valores impressos. \textbf{O fonte que temos no repositório não é
+o fonte que gerou o \texttt{J=0.txt}.} Os literais foram sobrescritos entre
+aquela execução e o commit atual --- e os que sobraram no repositório
+($\we^{\ast}\approx29{,}4$~\si{\per\centi\meter}) são de uma molécula
+completamente diferente, com frequência vibracional treze vezes menor.
+
+Adotando $\weye^{\ast}\approx-4{,}62{\times}10^{-3}$ (valor plausível, próximo
+ao do próprio arquivo), a inversão dá
+\begin{equation}
+  \we^{\ast} \approx 395{,}99~\si{\per\centi\meter}, \qquad
+  \wexe^{\ast} \approx 2{,}4106~\si{\per\centi\meter}.
+\end{equation}
+Testamos a hipótese de que esses literais viessem de uma execução com a outra
+curva disponível no projeto (a variante \texttt{Li\_Default}, cujo ajuste dá
+$\we=396{,}048$ e $\wexe=2{,}4416$): a reconstrução resulta em
+$\alfae=-0{,}651$ e $\gamae=0{,}0685$, próximos, mas \emph{não} iguais a
+$-0{,}679$ e $0{,}0534$. Ou seja, os literais vieram de uma terceira execução,
+com potencial e/ou massa que não estão mais no projeto. \textbf{Essa execução
+não é recuperável.}
+
+\section{Argumento 3: o valor é fisicamente impossível}
+
+Independentemente da procedência, $\alfae=-0{,}679$~\si{\per\centi\meter} não
+descreve esta molécula. A constante rotacional segue
+\begin{equation}
+  B_v = B_e - \alfae\left(v+\tfrac{1}{2}\right)
+             + \gamae\left(v+\tfrac{1}{2}\right)^2 + \cdots
+  \label{eq:Bv}
+\end{equation}
+Com $B_e = 0{,}79769$~\si{\per\centi\meter} obtido do porte, tem-se:
+
+\begin{center}
+\begin{tabular}{lrr}
+\toprule
+ & $\alfae$ do \texttt{J=0.txt} & $\alfae$ físico (este trabalho) \\
+\midrule
+$\alfae$ (\si{\per\centi\meter})       & $-0{,}6789$ & $+4{,}8425{\times}10^{-3}$ \\
+$\alfae/B_e$                            & $-0{,}851$  & $+6{,}07{\times}10^{-3}$ \\
+$B_1 = B_0 - \alfae$ (\si{\per\centi\meter}) & $1{,}4742$ & $0{,}7903$ \\
+$\langle r\rangle_{v=1}/\langle r\rangle_{v=0}$ & $0{,}73$ & $1{,}003$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\noindent
+Três absurdos simultâneos:
+\begin{enumerate}
+\item \textbf{Ordem de grandeza.} Para moléculas diatômicas
+      $\alfae/B_e \sim 10^{-2}$. O valor do \texttt{J=0.txt} dá
+      $\alfae/B_e \approx -0{,}85$: $\alfae$ da ordem do próprio $B_e$.
+\item \textbf{Sinal.} $\alfae<0$ implica, por \eqref{eq:Bv}, que $B_v$
+      \emph{cresce} com $v$, isto é, que a ligação \emph{encurta} ao vibrar. Em
+      um poço anarmônico com parede repulsiva dura e cauda dissociativa mole,
+      $\langle r\rangle$ necessariamente cresce com $v$; $\alfae>0$ é
+      obrigatório. Os próprios autovalores do arquivo confirmam:
+      $B_0 = 0{,}79525 > B_1 = 0{,}79029 > B_2 = 0{,}78521$, uma sequência
+      \emph{decrescente}.
+\item \textbf{Magnitude.} Como $B_v \propto \langle r^{-2}\rangle_v$, um salto
+      de $B_0=0{,}795$ para $B_1=1{,}474$ exigiria a ligação encolher $27\%$ ao
+      passar de $v=0$ para $v=1$. Nenhuma molécula faz isso.
+\end{enumerate}
+
+\section{Verificação positiva: o $J=1$ reproduz}
+
+Que o porte está correto se demonstra pelo lado que \emph{é} reproduzível. Para
+$J=1$ --- onde os literais do fonte haviam sido atualizados com o resultado do
+$J=0$, cumprindo a Eq.~7 --- o Python entrega:
+
+\begin{center}
+\begin{tabular}{lrrr}
+\toprule
+Constante (\si{\per\centi\meter}) & \texttt{J=1.txt} & Python & Desvio \\
+\midrule
+\texttt{WE}    & 397,34004 & 397,42508 & $0{,}085$ \\
+\texttt{WEXE}  & 2,30385   & 2,33122   & $0{,}027$ \\
+\texttt{WEYE}  & $-4{,}6225{\times}10^{-3}$ & $-4{,}1470{\times}10^{-3}$ & $4{,}8{\times}10^{-4}$ \\
+\texttt{ALFAE} & $4{,}7074{\times}10^{-3}$  & $4{,}8425{\times}10^{-3}$  & $1{,}4{\times}10^{-4}$ \\
+\texttt{GAMAE} & $-6{,}1224{\times}10^{-5}$ & $-5{,}9286{\times}10^{-5}$ & $1{,}9{\times}10^{-6}$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\noindent
+Os desvios remanescentes são limitados pelo ajuste, não pelo método: os pontos
+\emph{ab initio} espalham $\pm5$~\si{\per\centi\meter} em torno do melhor
+Rydberg de sexto grau (RMS $=1{,}86$~\si{\per\centi\meter}), o que se propaga
+para os níveis (\num{0,04}~\si{\per\centi\meter} em $v=1$, crescendo até
+\num{4,9}~\si{\per\centi\meter} em $v=20$).
+
+Além disso, o porte calcula $\alfae$ e $\gamae$ por uma \textbf{segunda via
+independente}, sem usar a Eq.~7: diretamente das constantes rotacionais
+$B_v = \bigl[E_v(J{=}1) - E_v(J{=}0)\bigr]/2$, com
+\begin{equation}
+  \gamae = \tfrac{1}{2}\bigl(B_0 - 2B_1 + B_2\bigr), \qquad
+  \alfae = \bigl(B_0 - B_1\bigr) + 2\,\gamae .
+\end{equation}
+O resultado:
+
+\begin{center}
+\begin{tabular}{lrr}
+\toprule
+ & Eq.~7 ($J=1$) & Via $B_v$ \\
+\midrule
+$\alfae$ (\si{\per\centi\meter}) & $4{,}8425480609311{\times}10^{-3}$ & $4{,}8425480606273{\times}10^{-3}$ \\
+$\gamae$ (\si{\per\centi\meter}) & $-5{,}9286026443117{\times}10^{-5}$ & $-5{,}9286026385830{\times}10^{-5}$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\noindent
+Concordância em \textbf{dez algarismos significativos} entre dois caminhos que
+não compartilham fórmula. Nenhum dos dois se aproxima de $-0{,}679$.
+
+\section{Conclusão}
+
+\begin{enumerate}
+\item $\alfae$ e $\gamae$ \textbf{não são constantes ``de $J=0$'' ou ``de
+      $J=1$''}. São constantes da molécula, definidas pela variação de $B_v$ com
+      $v$, e sua determinação exige \emph{comparar} $J=0$ com $J=1$. A aparente
+      dependência em $J$ nos arquivos de referência é artefato do fluxo
+      compilar--colar--recompilar do \texttt{DVR.f}, não física.
+\item Os valores $\alfae = -0{,}679$ e $\gamae = 0{,}0534$ do \texttt{J=0.txt}
+      são \textbf{espúrios}: pela identidade \eqref{eq:zero_alfae}, nenhum
+      cálculo sobre os dados de $J=0$ os produz; eles vieram de literais
+      obsoletos de uma execução não recuperável; e são fisicamente impossíveis
+      (implicariam a ligação encurtar $27\%$ ao vibrar).
+\item Os valores $\alfae = 4{,}707{\times}10^{-3}$ e
+      $\gamae = -6{,}122{\times}10^{-5}$ do \texttt{J=1.txt} são
+      \textbf{corretos} e são reproduzidos pelo porte dentro do erro do ajuste,
+      por duas vias independentes.
+\end{enumerate}
+
+\paragraph{Recomendação.} Reportar um único par $(\alfae,\gamae)$ por molécula,
+o do bloco \texttt{J=1}, e descartar o par do \texttt{J=0.txt}. O porte imprime
+hoje $\sim\!10^{-13}$ no bloco $J=0$, o que é a identidade
+\eqref{eq:zero_alfae} sendo honesta a respeito de si mesma; se preferir-se, esse
+campo pode exibir o valor físico nos dois blocos, ou ser suprimido em $J=0$.
+
+\end{document}
