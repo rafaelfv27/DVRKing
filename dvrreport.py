@@ -1,9 +1,9 @@
 """Article-style LaTeX/PDF report for dvr.py.
 
 No physics here: consumes the fit params and eigenvalues dvr.py produces and
-renders (1) two figures mirroring the reference article -- the potential energy
-curve with its Rydberg-6 fit and residual, and the vibrational spectrum -- and
-(2) a LaTeX document with three tables, compiled to PDF via pdflatex (MiKTeX).
+renders (1) three figures mirroring the reference article -- the potential energy
+curve with its Rydberg-6 fit, the fit residual, and the vibrational spectrum --
+and (2) a LaTeX document with three tables, compiled to PDF via pdflatex.
 """
 import os
 import shutil
@@ -44,7 +44,7 @@ def make_figures(r, v, p, results, A, B, assets):
     fit_rel = _pec_curve(p, rr) * dvr.CM
     De_cm = p["De"] * dvr.CM
 
-    # --- Fig 1: PEC + Ryd6 fit + residual (twin axis) + vibrational levels ---
+    # --- Fig 1: PEC + Ryd6 fit + vibrational levels ---
     fig, ax = plt.subplots(figsize=(6.4, 4.6))
     ax.scatter(r, vrel, s=14, facecolors="none", edgecolors="tab:blue",
                linewidths=0.9, label="ab initio (CSV)", zorder=3)
@@ -65,24 +65,31 @@ def make_figures(r, v, p, results, A, B, assets):
     ax.set_xlim(A, B)
     ax.set_ylim(-0.05 * De_cm, 1.15 * De_cm)
 
-    axr = ax.twinx()                     # residual (fit - data), red, like ESM
-    resid = (_pec_curve(p, r) * dvr.CM) - vrel
-    axr.plot(r, resid, color="tab:red", lw=1.0, label="fit error")
-    axr.set_ylabel(r"fit error (cm$^{-1}$)", color="tab:red")
-    axr.tick_params(axis="y", colors="tab:red")
-    m = np.max(np.abs(resid)) or 1.0
-    axr.set_ylim(-6 * m, 6 * m)
-
-    h1, l1 = ax.get_legend_handles_labels()
-    h2, l2 = axr.get_legend_handles_labels()
-    ax.legend(h1 + h2, l1 + l2, loc="center right", fontsize=9, framealpha=0.9)
+    # lower right is the one region no curve, level or D_e line reaches
+    ax.legend(loc="lower right", fontsize=9, framealpha=0.9)
     ax.set_title("Potential energy curve and sixth-degree Rydberg fit")
     fig.tight_layout()
     paths["pec"] = os.path.join(assets, "pec.pdf")
     fig.savefig(paths["pec"]); fig.savefig(paths["pec"][:-4] + ".png", dpi=300)
     plt.close(fig)
 
-    # --- Fig 2: vibrational spectrum (levels ladder + spacing roll-off) ---
+    # --- Fig 2: fit error (own panel; a twin axis on Fig 1 buried it) ---
+    resid = (_pec_curve(p, r) * dvr.CM) - vrel
+    fig, ax = plt.subplots(figsize=(6.4, 3.2))
+    ax.axhline(0.0, color="0.6", lw=0.8)
+    ax.plot(r, resid, "o-", color="tab:red", ms=3, lw=1.0)
+    ax.set_xlabel(r"$r$ (bohr)")
+    ax.set_ylabel(r"fit error (cm$^{-1}$)")
+    ax.set_xlim(A, B)
+    ax.set_title("Rydberg-6 fit error (fit $-$ ab initio), RMS = "
+                 f"{p['rms'] * dvr.CM:.2f} " + r"cm$^{-1}$")
+    ax.grid(True, ls=":", lw=0.5, alpha=0.6)
+    fig.tight_layout()
+    paths["err"] = os.path.join(assets, "fiterror.pdf")
+    fig.savefig(paths["err"]); fig.savefig(paths["err"][:-4] + ".png", dpi=300)
+    plt.close(fig)
+
+    # --- Fig 3: vibrational spectrum (levels ladder + spacing roll-off) ---
     fig, (axl, axc) = plt.subplots(1, 2, figsize=(7.6, 4.4))
     Ecm = E0 * dvr.CM
     for k, e in enumerate(Ecm):
@@ -193,8 +200,11 @@ def make_tex(base, p, results, figs, mu):
     A(r"\begin{figure}[h]\centering\includegraphics[width=0.82\textwidth]{%s}"
       % figs["pec"].replace("\\", "/"))
     A(r"\caption{Potential energy curve: ab initio points, sixth-degree "
-      r"Rydberg fit, fit error (right axis, red), and the J=0 vibrational "
-      r"levels (green).}\end{figure}")
+      r"Rydberg fit, and the J=0 vibrational levels (green).}\end{figure}")
+    A(r"\begin{figure}[h]\centering\includegraphics[width=0.82\textwidth]{%s}"
+      % figs["err"].replace("\\", "/"))
+    A(r"\caption{Residual of the sixth-degree Rydberg fit, fit $-$ ab initio, "
+      r"over the whole grid.}\end{figure}")
     A(r"\begin{figure}[h]\centering\includegraphics[width=0.9\textwidth]{%s}"
       % figs["spec"].replace("\\", "/"))
     A(r"\caption{Vibrational spectrum: energy-level ladder (left) and the "
@@ -225,7 +235,7 @@ def build_report(base, r, v, p, results, A, B, mu):
     except Exception as e:                       # never let plotting kill a run
         print(f"[dvr] aviso: figuras falharam ({e}); PDF sem figuras.",
               file=sys.stderr)
-        figs = {"pec": "", "spec": ""}
+        figs = {"pec": "", "err": "", "spec": ""}
     tex = make_tex(base, p, results, figs, mu)
 
     exe = _find_pdflatex()

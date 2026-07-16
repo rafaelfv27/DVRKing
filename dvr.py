@@ -118,6 +118,21 @@ def spectro_constants(E):
     return we, wexe, weye
 
 
+def eq7_constants(E, we, wexe, weye):
+    """alfae, gamae from Eq. 7 of Silva et al., J Mol Model 24:235 (2018).
+
+    E is one J's ladder; (we, wexe, weye) come from the J=0 ladder. That is the
+    pairing DVR.f:347-353 performs: the legacy workflow ran J=0, pasted its
+    we/wexe/weye into DVR.f:342-346, then ran J=1. Fed E = the J=0 ladder it
+    degenerates into a self-consistency residual (~0), not a real constant.
+    """
+    Ecm = E * CM
+    d1, d2 = Ecm[1] - Ecm[0], Ecm[2] - Ecm[0]
+    alfae = (-12 * d1 + 4 * d2 + 4 * we - 23 * weye) / 8
+    gamae = (-2 * d1 + d2 + 2 * wexe - 9 * weye) / 4
+    return alfae, gamae
+
+
 def rot_constants(E0, E1):
     """alfae, gamae from Bv = (E_v(J=1)-E_v(J=0))/2, v = 0,1,2."""
     Bv = (E1[:3] - E0[:3]) / 2.0 * CM
@@ -146,6 +161,7 @@ def report(out, p, results, mu):
         w(f" {k} = {p[k]:.12e}\n")
     w(f" rms do ajuste = {p['rms']:.3e} hartree\n\n")
 
+    ref = spectro_constants(results[0])       # J=0 constants feed Eq. 7 for both
     for J, E in results.items():
         Ecm = E * CM
         w(f"J = {J}\n")
@@ -159,9 +175,12 @@ def report(out, p, results, mu):
         for i in range(len(Ecm) - 1):
             w(f"{i + 1:6d}   {Ecm[i + 1] - Ecm[i]:.13f}\n")
         we, wexe, weye = spectro_constants(E)
+        alfae, gamae = eq7_constants(E, *ref)
         w("\nCONSTANTES ESPECTROSCOPICAS\n" + "-" * 46 + "\n")
         w(f" WE(cm-1)   = {we:.13f}\n")
+        w(f" ALFAE(cm-1)= {alfae:.13e}\n")
         w(f" WEXE(cm-1) = {wexe:.13f}\n")
+        w(f" GAMAE(cm-1)= {gamae:.13e}\n")
         w(f" WEYE(cm-1) = {weye:.13e}\n\n")
 
     alfae, gamae, Be, Bv = rot_constants(results[0], results[1])
@@ -171,17 +190,6 @@ def report(out, p, results, mu):
     w(f" BE(cm-1)    = {Be:.13e}\n")
     w(f" ALFAE(cm-1) = {alfae:.13e}\n")
     w(f" GAMAE(cm-1) = {gamae:.13e}\n")
-
-    # Eq. 7 of Silva et al., J Mol Model 24:235 (2018) — same finite-diff
-    # scheme the reference article uses (J=1 spacings + J=0 we/wexe/weye)
-    we, wexe, weye = spectro_constants(results[0])
-    E1 = results[1] * CM
-    d11, d21 = E1[1] - E1[0], E1[2] - E1[0]
-    alfae7 = (-12 * d11 + 4 * d21 + 4 * we - 23 * weye) / 8
-    gamae7 = (-2 * d11 + d21 + 2 * wexe - 9 * weye) / 4
-    w("\nCONSTANTES ROTACIONAIS (Eq. 7 do artigo, J Mol Model 24:235)\n" + "-" * 46 + "\n")
-    w(f" ALFAE(cm-1) = {alfae7:.13e}\n")
-    w(f" GAMAE(cm-1) = {gamae7:.13e}\n")
 
 
 # --------------------------------------------------------------------- main
