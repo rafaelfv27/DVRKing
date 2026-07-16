@@ -1,0 +1,10 @@
+__pycache__/
+*.pyc
+*.aux
+*.log
+*.out
+fort.*
+
+# Artigo Springer + material suplementar (copyright, nao redistribuir)
+s00894-018-3780-y.pdf
+894_2018_3780_MOESM1_ESM.docx
