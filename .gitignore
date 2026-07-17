@@ -5,6 +5,12 @@ __pycache__/
 *.out
 fort.*
 
+# Saidas geradas pelo dvr.py / dvrreport.py
+*_out.txt
+*_assets/
+*_report.tex
+*_report.pdf
+
 # Artigo Springer + material suplementar (copyright, nao redistribuir)
 s00894-018-3780-y.pdf
 894_2018_3780_MOESM1_ESM.docx
