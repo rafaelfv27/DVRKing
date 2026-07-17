@@ -74,29 +74,13 @@ Linhas de cabeçalho nomeando a unidade (`radii_bohr,E_hartree`) evitam a heurí
 detecção. Unidades aceitas: `r` em `bohr`/`angstrom`; `V` em `hartree`, `cm-1`, `eV`,
 `kcal/mol`, `kJ/mol`.
 
-## Testes
-
-```bash
-python -m pytest test_dvr.py
-```
-
-Regressão contra os autovalores e o `we` de referência fixados no próprio `test_dvr.py`, para a
-curva de `potential.csv`. O núcleo DVR os reproduz em 1e-6 cm⁻¹; o caminho completo
-(CSV → ajuste → níveis) em 0.1 cm⁻¹ — limitado pelo ajuste, já que aqueles dados desviam de um
-Rydberg-6 perfeito por rms 1.2e-7 hartree.
-
 ## Arquivos
 
 | Arquivo | Conteúdo |
 |---|---|
 | `dvr.py` | solver: leitura do CSV, ajuste, Hamiltoniano, diagonalização, constantes |
 | `dvrreport.py` | figuras e relatório LaTeX/PDF (sem física) |
-| `test_dvr.py` | testes de regressão |
-| `Li_Omega.csv` | curva Li–C70 (μ = 6.884168 amu) |
-| `potential.csv` | curva usada nos testes |
-
 ## Notas
 
 - Unidades internas atômicas; energias convertidas com 219474.631 (hartree → cm⁻¹) e massas
   com 1822.88839 (amu → massas de elétron).
-- `alfae`/`gamae` só são definidos para J ≠ 0; ver `nota_alfae_gamae.pdf`.
