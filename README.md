@@ -80,10 +80,11 @@ detecção. Unidades aceitas: `r` em `bohr`/`angstrom`; `V` em `hartree`, `cm-1`
 python -m pytest test_dvr.py
 ```
 
-Regressão contra o run de referência do `DVR.exe` legado (`potential.csv` são os 500 pontos
-(r, V) que ele registrou): o núcleo DVR reproduz os autovalores do `fort.4` em 1e-6 cm⁻¹, e o
-caminho completo (CSV → ajuste → níveis) em 0.1 cm⁻¹ — limitado pelo ajuste, já que os dados
-legados desviam de um Rydberg-6 perfeito por rms 1.2e-7 hartree.
+Regressão contra o run de referência do `DVR.exe` legado. As saídas `fort.*` daquele run não
+estão mais no repositório: os 500 pontos (r, V) que ele registrou viraram `potential.csv`, e os
+autovalores/we de referência estão fixados no próprio `test_dvr.py`. O núcleo DVR os reproduz
+em 1e-6 cm⁻¹; o caminho completo (CSV → ajuste → níveis) em 0.1 cm⁻¹ — limitado pelo ajuste, já
+que os dados legados desviam de um Rydberg-6 perfeito por rms 1.2e-7 hartree.
 
 ## Arquivos
 
@@ -101,6 +102,6 @@ legados desviam de um Rydberg-6 perfeito por rms 1.2e-7 hartree.
 
 - Unidades internas atômicas; energias convertidas com 219474.631 (hartree → cm⁻¹), o literal
   do legado, mantido para a regressão.
-- O `fort.4` do legado imprimia os níveis com esse fator em precisão simples (219474.625) — o
-  teste desfaz isso antes de comparar. Ver `wiki/Bugs Legados.md`.
+- O legado imprimia os níveis com esse fator em precisão simples (219474.625) — o teste desfaz
+  isso antes de comparar com os valores de referência. Ver `wiki/Bugs Legados.md`.
 - `alfae`/`gamae` só são definidos para J ≠ 0; ver `nota_alfae_gamae.pdf`.
