@@ -19,6 +19,7 @@ import numpy as np
 from scipy.linalg import eigh
 
 import dvr
+import dvrreport
 
 F4SCALE = dvr.CM / float(np.float32(dvr.CM))   # undo single-precision print
 REF = np.array([9.7211221261708740, 28.870890234651771, 47.635691885033019,
@@ -109,6 +110,74 @@ def test_units():
     print("units: header, guess, override and conversion all OK")
 
 
+def test_dunham():
+    """Dunham (Baggio 2017 eq. 5) must reproduce what it was built from.
+
+    we/wexe/weye come from finite differences of the first four J=0 levels, so
+    the cubic G(v) has to return those four spacings exactly; Bv(v) is the
+    parabola through B_0..B_2, so eps(v,1)-eps(v,0) has to return 2*B_v. Both
+    hold to roundoff -- anything worse means the expansion or the constants
+    drifted apart. Extrapolation beyond v=3 is checked only for sanity: the
+    cubic is fit to 4 levels and cannot track a real anharmonic ladder to
+    dissociation.
+    """
+    r, v, _ = dvr.load_csv("Li_Omega.csv")
+    p = dvr.fit_rydberg6(r, v)
+    results = {J: dvr.solve(r[0], r[-1], N, MU_OMEGA, p, J, 0.0, p["De"])
+               for J in (0, 1)}
+    c = dvr.all_constants(results)
+    E0 = results[0] * dvr.CM
+
+    g = dvr.dunham(np.arange(4), 0, c) - dvr.dunham(0, 0, c)
+    assert np.abs(g - (E0[:4] - E0[0])).max() < 1e-8
+
+    Bv = (results[1][:3] - results[0][:3]) / 2.0 * dvr.CM
+    eps = dvr.dunham(np.arange(3), 1, c) - dvr.dunham(np.arange(3), 0, c)
+    print(f"dunham: G(v) exact to {np.abs(g - (E0[:4] - E0[0])).max():.2e}, "
+          f"2Bv to {np.abs(eps - 2 * Bv).max():.2e} cm-1")
+    # the two routes to alfae/gamae -- the J=0-constants methodology and the
+    # parabola through B_0..B_2 -- turn out to be the same identity, agreeing to
+    # roundoff, so Bv_dunham reproduces Bv and not merely approximates it
+    assert np.abs(eps - 2 * Bv).max() < 1e-9
+
+    vmax, vmax_ok = dvr.vmax_cutoffs(c, p["De"] * dvr.CM)
+    print(f"        vmax {vmax}, vmax(Bv>0) {vmax_ok}, "
+          f"DVR bound levels {len(E0)}")
+    assert 0 < vmax < 999 and vmax_ok <= vmax
+    assert dvr.dunham(vmax, 0, c) < p["De"] * dvr.CM
+    assert dvr.Bv_dunham(np.arange(vmax_ok + 1), c).min() > 0
+
+
+def test_report_without_figures():
+    """make_tex must omit every figure whose path is missing.
+
+    An empty \\includegraphics{} is a fatal LaTeX error. When plotting fails
+    build_report passes figs={}, so emitting the blocks anyway would take the
+    tables down with them and end the run without any PDF -- which is what the
+    old empty-string fallback did, despite promising the opposite.
+    """
+    r, v, _ = dvr.load_csv("Li_Omega.csv")
+    p = dvr.fit_rydberg6(r, v)
+    results = {J: dvr.solve(r[0], r[-1], N, MU_OMEGA, p, J, 0.0, p["De"])
+               for J in (0, 1)}
+    tex = dvrreport.make_tex("test/_figless", p, results, {}, MU_OMEGA)
+    body = open(tex, encoding="utf-8").read()
+    os.remove(tex)
+    assert "includegraphics" not in body
+    # the tables are the point: they must survive a plotting failure
+    assert r"\begin{tabular}" in body and r"\begin{longtable}" in body
+    print("report: figs={} -> no includegraphics, tables intact")
+
+
+def test_esc():
+    """base comes from the CSV filename, so it can carry any LaTeX special."""
+    assert dvrreport._esc("run_50%_scan") == r"run\_50\%\_scan"
+    assert dvrreport._esc("a$b#c") == r"a\$b\#c"
+    assert dvrreport._esc("x{y}") == r"x\{y\}"
+    assert dvrreport._esc("back\\slash") == r"back\textbackslash{}slash"
+    print("esc: LaTeX specials escaped")
+
+
 def test_drop_box_states():
     # monotone-decreasing spacing (physical) is kept whole
     E = np.array([0.0, 10.0, 19.0, 27.0, 34.0])
@@ -120,8 +189,11 @@ def test_drop_box_states():
 
 if __name__ == "__main__":
     test_units()
+    test_esc()
     test_drop_box_states()
+    test_report_without_figures()
     test_li_omega_vs_reference()
+    test_dunham()
     # Part A: kinetic matrix + eigh, exact potential values
     rv = np.loadtxt("potential.csv", delimiter=",")
     H, x = dvr.build_hamiltonian(A, B, N, MU, lambda _: rv[:, 1])

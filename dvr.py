@@ -21,6 +21,7 @@ from scipy.optimize import least_squares
 CM = 219474.631      # hartree -> cm-1 (legacy literal, keep for regression)
 AMU_TO_ME = 1822.88839   # amu -> electron masses (legacy literal)
 NPOINTS = 500        # DVR grid size; dense enough, matches legacy reference run
+JMAX = 5             # highest J tabulated from Dunham's expansion (--jmax)
 
 # ------------------------------------------------------------------- units
 # The DVR runs in bohr/hartree; a CSV may arrive in anything. Factors -> a.u.
@@ -223,6 +224,48 @@ def rot_constants(E0, E1):
     return alfae, gamae, Be, Bv
 
 
+def Bv_dunham(v, c):
+    """B_v = Be - alfae(v+1/2) + gamae(v+1/2)^2, the J(J+1) bracket of eq. 5."""
+    x = np.asarray(v) + 0.5
+    return c["Be"] - c["alfae"] * x + c["gamae"] * x**2
+
+
+def dunham(v, J, c):
+    """eps(v,J) in cm-1 from Dunham's expansion (Baggio 2017, eq. 5).
+
+    Truncated at exactly the constants the two-run methodology yields, so no J
+    beyond 1 costs a diagonalization: DVR runs at J=0 and J=1, this extrapolates
+    the rest. The printed eq. 5 drops the (v+1/2)^2 off gamae in its first line;
+    its own expanded form and eqs. 9-10 keep it, so follow those.
+    """
+    x = np.asarray(v) + 0.5
+    G = c["we"][0] * x - c["wexe"][0] * x**2 + c["weye"][0] * x**3
+    return G + Bv_dunham(v, c) * J * (J + 1)
+
+
+def vmax_cutoffs(c, De_cm, vcap=999):
+    """(vmax, vmax_ok): the two vibrational summation limits of Baggio 2017.
+
+    vmax (eq. 6) is the largest v with eps(v,0) < De. The cubic G(v) turns over
+    somewhere and then descends back under De forever, so scan upward and stop
+    at the first v that is either unbound or past the turning point -- "largest
+    integer for which the inequality holds" only means anything on the rising
+    branch.
+
+    vmax_ok (eq. 10) caps that further at the last v with B_v > 0: beyond it the
+    Euler-Maclaurin rotational integral diverges, so a partition function must
+    stop earlier than dissociation allows (24 -> 17 for NiPc in the paper).
+    """
+    v = np.arange(vcap + 1)
+    e = dunham(v, 0, c)
+    ok = e < De_cm
+    ok[1:] &= np.diff(e) > 0
+    vmax = int(np.argmin(ok)) - 1 if not ok.all() else vcap
+    pos = Bv_dunham(v, c) > 0
+    vpos = int(np.argmin(pos)) - 1 if not pos.all() else vcap
+    return vmax, min(vmax, vpos)
+
+
 def all_constants(results):
     """Every spectroscopic constant (cm-1) as a dict, for text + PDF report."""
     we0, wexe0, weye0 = spectro_constants(results[0])
@@ -235,7 +278,7 @@ def all_constants(results):
             "Be": Be, "alfae": alfae, "gamae": gamae, "Bv": Bv}
 
 
-def report(out, p, results, mu, units=None):
+def report(out, p, results, units=None, jmax=JMAX):
     w = out.write
     if units:
         ru, eu, how = units
@@ -267,10 +310,16 @@ def report(out, p, results, mu, units=None):
         w(f" WE(cm-1)   = {we:.13f}\n")
         w(f" WEXE(cm-1) = {wexe:.13f}\n")
         w(f" WEYE(cm-1) = {weye:.13e}\n")
-        if J:                       # alfae/gamae need the J=0 run's constants
-            alfae, gamae = alfae_gamae(E, *ref)
-            w(f" ALFAE(cm-1)= {alfae:.13e}   (com WE/WEXE/WEYE do J=0)\n")
-            w(f" GAMAE(cm-1)= {gamae:.13e}   (com WE/WEXE/WEYE do J=0)\n")
+        alfae, gamae = alfae_gamae(E, *ref)   # sempre com as constantes do J=0
+        w(f" ALFAE(cm-1)= {alfae:.13e}\n")
+        w(f" GAMAE(cm-1)= {gamae:.13e}\n")
+        if J:
+            w(" (das energias deste run com WE/WEXE/WEYE do J=0: a metodologia)\n")
+        else:
+            w(" (residuo de consistencia, nao constantes: em J=0 o fator J(J+1)\n"
+              "  zera e o +4WE-23WEYE da formula cancela a parte vibracional,\n"
+              "  entao sobra ~0. Longe de zero = constantes e niveis de runs\n"
+              "  diferentes. Os alfae/gamae fisicos sao os do J=1.)\n")
         w("\n")
 
     alfae, gamae, Be, Bv = rot_constants(results[0], results[1])
@@ -280,6 +329,27 @@ def report(out, p, results, mu, units=None):
     w(f" BE(cm-1)    = {Be:.13e}\n")
     w(f" ALFAE(cm-1) = {alfae:.13e}\n")
     w(f" GAMAE(cm-1) = {gamae:.13e}\n")
+
+    c = all_constants(results)
+    De_cm = p["De"] * CM
+    vmax, vmax_ok = vmax_cutoffs(c, De_cm)
+    n = len(results[0])
+    dev = dunham(np.arange(n), 0, c) - results[0] * CM
+    i = int(np.argmax(np.abs(dev)))
+    w("\nEXPANSAO DE DUNHAM (Baggio 2017, eq. 5)\n" + "-" * 46 + "\n")
+    w(" eps(v,J) = we(v+1/2) - wexe(v+1/2)^2 + weye(v+1/2)^3\n")
+    w("            + [Be - alfae(v+1/2) + gamae(v+1/2)^2] J(J+1)\n")
+    w(" com as constantes do J=0 e o alfae/gamae da metodologia dos dois runs\n")
+    w(f" De (cm-1) = {De_cm:.6f}\n")
+    w(f" vmax  (eq. 6, eps(v,0) < De)     = {vmax}\n")
+    w(f" vmax  (eq. 10, Bv > 0)           = {vmax_ok}\n")
+    w(f" desvio Dunham-DVR em J=0 sobre os {n} niveis do DVR: max {dev[i]:+.4f}"
+      f" cm-1 em v={i}, rms {np.sqrt(np.mean(dev**2)):.4f}\n")
+    jj = range(jmax + 1)
+    w("\n eps(v,J) (cm-1)\n")
+    w("     v" + "".join(f"{'J=' + str(j):>17}" for j in jj) + "\n")
+    for vq in range(vmax + 1):
+        w(f"{vq:6d}" + "".join(f"{dunham(vq, j, c):17.6f}" for j in jj) + "\n")
 
 
 # --------------------------------------------------------------------- main
@@ -296,14 +366,14 @@ def _drop_box_states(E):
     return E if rising.size == 0 else E[:rising[0] + 2]
 
 
-def run_analysis(csv_path, mu, npoints=NPOINTS, r_unit=None, e_unit=None):
+def run_analysis(csv_path, mu, r_unit=None, e_unit=None):
     """Fit + diagonalize a (r, V) CSV. Units, grid (= r-range) and level count
     (= bound states below De) are all automatic.
     Returns (r, v, p, results, A, B, units) with r/v already in bohr/hartree."""
     r, v, units = load_csv(csv_path, r_unit, e_unit)
     A, B = r[0], r[-1]
     p = fit_rydberg6(r, v)
-    results = {J: _drop_box_states(solve(A, B, npoints, mu, p, J, 0.0, p["De"]))
+    results = {J: _drop_box_states(solve(A, B, NPOINTS, mu, p, J, 0.0, p["De"]))
                for J in (0, 1)}
     return r, v, p, results, A, B, units
 
@@ -320,6 +390,9 @@ def main(argv=None):
                     help="unidade da coluna r (padrao: detecta do CSV)")
     ap.add_argument("--e-unit", choices=sorted(E_TO_HARTREE), dest="e_unit",
                     help="unidade da coluna V (padrao: detecta do CSV)")
+    ap.add_argument("--jmax", type=int, default=JMAX,
+                    help=f"maior J tabulado por Dunham (padrao: {JMAX}). O DVR "
+                         "so roda em J=0 e 1; o resto e extrapolado pela eq. 5")
     ap.add_argument("--no-pdf", action="store_true",
                     help="pula geracao do relatorio LaTeX/PDF")
     args = ap.parse_args(argv)
@@ -339,8 +412,8 @@ def main(argv=None):
     base = os.path.splitext(os.path.basename(args.csv))[0]
     txt = f"{base}_out.txt"
     with open(txt, "w") as f:
-        report(f, p, results, mu, units)
-    report(sys.stdout, p, results, mu, units)
+        report(f, p, results, units, args.jmax)
+    report(sys.stdout, p, results, units, args.jmax)
     ru, eu, how = units
     print(f"\n[dvr] unidades do CSV: r = {ru} ({how['r']}), "
           f"V = {eu} ({how['E']})")
@@ -350,12 +423,19 @@ def main(argv=None):
               "angstrom. Assumi bohr. Se estiver errado, rode com "
               "--r-unit angstrom (ou nomeie a coluna, ex. 'radii_bohr').",
               file=sys.stderr)
+    if how["E"] == "guess":
+        print(f"[dvr] AVISO: nada no CSV nomeia a unidade de V; deduzi {eu} da "
+              "profundidade do poco. O criterio erra em poco raso (um poco de "
+              "<1 eV dado em eV le como hartree, 27x fundo demais). Se estiver "
+              "errado, rode com --e-unit (ou nomeie a coluna, ex. 'E (eV)').",
+              file=sys.stderr)
     print(f"[dvr] texto: {txt}   niveis: J=0 {len(results[0])}, "
           f"J=1 {len(results[1])}")
 
     if not args.no_pdf:
         import dvrreport
-        dvrreport.build_report(base, r, v, p, results, A, B, mu, units)
+        dvrreport.build_report(base, r, v, p, results, A, B, mu, units,
+                               args.jmax)
 
     return p, results
 
