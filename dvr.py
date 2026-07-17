@@ -22,6 +22,19 @@ CM = 219474.631      # hartree -> cm-1 (legacy literal, keep for regression)
 AMU_TO_ME = 1822.88839   # amu -> electron masses (legacy literal)
 NPOINTS = 500        # DVR grid size; dense enough, matches legacy reference run
 
+# ------------------------------------------------------------------- units
+# The DVR runs in bohr/hartree; a CSV may arrive in anything. Factors -> a.u.
+R_TO_BOHR = {"bohr": 1.0, "angstrom": 1.8897261254578281}
+E_TO_HARTREE = {"hartree": 1.0, "cm-1": 1.0 / CM, "eV": 1.0 / 27.211386245988,
+                "kcal/mol": 1.0 / 627.509474, "kJ/mol": 1.0 / 2625.4996394799}
+# Substrings that name a unit in a column header. "au"/"a.u." is bohr for r and
+# hartree for E -- both are factor 1, so the collision is harmless.
+_R_ALIASES = {"angstrom": ("angstrom", "angst", "ang", "å"),
+              "bohr": ("bohr", "a.u.", "au", "a0", "atomic")}
+_E_ALIASES = {"cm-1": ("cm-1", "cm^-1", "cm**-1", "cm1", "wavenumber"),
+              "kcal/mol": ("kcal",), "kJ/mol": ("kj",), "eV": ("ev",),
+              "hartree": ("hartree", "e_h", "eh", "a.u.", "au", "atomic")}
+
 
 # ---------------------------------------------------------------- potential
 def rydberg6(r, De, Re, xe, c1, c2, c3, c4, c5, c6):
@@ -31,14 +44,76 @@ def rydberg6(r, De, Re, xe, c1, c2, c3, c4, c5, c6):
     return -De * poly * np.exp(-c1 * xx) + De + xe
 
 
-def load_csv(path):
-    """Two columns r (bohr), V (hartree). Comma or whitespace separated."""
+def _is_number(s):
+    try:
+        float(s)
+        return True
+    except ValueError:
+        return False
+
+
+def _match(field, aliases):
+    f = field.lower()
+    for unit, keys in aliases.items():
+        if any(k in f for k in keys):
+            return unit
+    return None
+
+
+def _guess_e_unit(span):
+    """From the energy range of a bound diatomic. Decisive: a well is never
+    ~1 hartree deep, and never as shallow as ~100 cm-1 with 4+ levels.
+    kcal/mol and kJ/mol overlap both and are only honoured from a header."""
+    if span < 1.0:
+        return "hartree"
+    return "cm-1" if span > 100.0 else "eV"
+
+
+def _guess_r_unit(Re):
+    """From the position of the well. Only the extremes decide: 1.2-5.0 reads
+    as a real bond either way (3.4 bohr = 1.8 A, or 3.4 A = 6.4 bohr)."""
+    if Re < 1.2:            # 1.2 bohr = 0.63 A, shorter than any real bond
+        return "angstrom"
+    if Re > 5.0:            # 5 A, longer than all but the heaviest vdW dimers
+        return "bohr"
+    return None
+
+
+def resolve_units(fields, r, v, r_unit=None, e_unit=None):
+    """Units of a CSV: caller's override > header name > magnitude of the data.
+
+    `fields` are the header column names ([] if the file has no header).
+    Returns (r_unit, e_unit, how), how mapping "r"/"E" -> how it was decided.
+    """
+    how = {"r": "given", "E": "given"}
+    if r_unit is None and fields:
+        r_unit, how["r"] = _match(fields[0], _R_ALIASES), "header"
+    if r_unit is None:
+        r_unit, how["r"] = _guess_r_unit(r[np.argmin(v)]), "guess"
+    if r_unit is None:
+        r_unit, how["r"] = "bohr", "ambiguous"
+    if e_unit is None and fields:
+        e_unit, how["E"] = _match(fields[1], _E_ALIASES), "header"
+    if e_unit is None:
+        e_unit, how["E"] = _guess_e_unit(np.ptp(v)), "guess"
+    return r_unit, e_unit, how
+
+
+def load_csv(path, r_unit=None, e_unit=None):
+    """Two columns r, V -> (r in bohr, V in hartree, units).
+
+    Comma or whitespace separated. Units are auto-detected (see resolve_units)
+    and converted; `units` is the (r_unit, e_unit, how) triple that was applied.
+    """
     with open(path) as f:
         first = f.readline()
     delim = "," if "," in first else None
-    skip = 0 if any(c.isdigit() for c in first.split(delim or None)[0]) else 1
-    data = np.loadtxt(path, delimiter=delim, skiprows=skip)
-    return data[:, 0], data[:, 1]
+    fields = [f.strip() for f in first.strip().lstrip("#").split(delim or None)]
+    header = bool(fields) and not _is_number(fields[0])
+    data = np.loadtxt(path, delimiter=delim, skiprows=1 if header else 0)
+    r, v = data[:, 0], data[:, 1]
+    ru, eu, how = resolve_units(fields if header else [], r, v, r_unit, e_unit)
+    return r * R_TO_BOHR[ru], v * E_TO_HARTREE[eu], (ru, eu, how)
 
 
 def fit_rydberg6(r, v):
@@ -118,13 +193,19 @@ def spectro_constants(E):
     return we, wexe, weye
 
 
-def eq7_constants(E, we, wexe, weye):
-    """alfae, gamae from Eq. 7 of Silva et al., J Mol Model 24:235 (2018).
+def alfae_gamae(E, we, wexe, weye):
+    """alfae, gamae from a J=1 ladder plus the we/wexe/weye of the J=0 ladder.
 
-    E is one J's ladder; (we, wexe, weye) come from the J=0 ladder. That is the
-    pairing DVR.f:347-353 performs: the legacy workflow ran J=0, pasted its
-    we/wexe/weye into DVR.f:342-346, then ran J=1. Fed E = the J=0 ladder it
-    degenerates into a self-consistency residual (~0), not a real constant.
+    This is the legacy two-run methodology: run J=0, read we/wexe/weye off its
+    fort.4, paste them into DVR.f:342-346, switch V to J=1 and run again
+    (DVR.f:347-353 then combines the pasted J=0 constants with the J=1
+    spacings). Here both runs happen in one process, so the paste is just the
+    argument. Only defined for J != 0: fed the J=0 ladder itself the formulas
+    degenerate into a self-consistency residual (~0), not a constant.
+
+    With E(v,J) = G(v) + [Be - alfae(v+1/2) + gamae(v+1/2)^2] J(J+1) and J=1,
+    eliminating G(v) with the J=0 constants leaves two equations for the two
+    unknowns -- these closed forms.
     """
     Ecm = E * CM
     d1, d2 = Ecm[1] - Ecm[0], Ecm[2] - Ecm[0]
@@ -146,13 +227,20 @@ def all_constants(results):
     """Every spectroscopic constant (cm-1) as a dict, for text + PDF report."""
     we0, wexe0, weye0 = spectro_constants(results[0])
     we1, wexe1, weye1 = spectro_constants(results[1])
-    alfae, gamae, Be, Bv = rot_constants(results[0], results[1])
+    # methodology: J=0 constants + J=1 spacings. Bv only supplies Be, which the
+    # methodology does not produce.
+    alfae, gamae = alfae_gamae(results[1], we0, wexe0, weye0)
+    _, _, Be, Bv = rot_constants(results[0], results[1])
     return {"we": (we0, we1), "wexe": (wexe0, wexe1), "weye": (weye0, weye1),
             "Be": Be, "alfae": alfae, "gamae": gamae, "Bv": Bv}
 
 
-def report(out, p, results, mu):
+def report(out, p, results, mu, units=None):
     w = out.write
+    if units:
+        ru, eu, how = units
+        w("UNIDADES DO CSV (convertidas para bohr/hartree)\n" + "-" * 46 + "\n")
+        w(f" r = {ru}  ({how['r']})\n V = {eu}  ({how['E']})\n\n")
     w("AJUSTE RYDBERG 6 (unidades atomicas)\n" + "-" * 46 + "\n")
     w(f" Re (dist. equilibrio, bohr) = {p['Re']:.12f}\n")
     w(f" xe (energia equilibrio, hartree) = {p['xe']:.12e}\n")
@@ -161,7 +249,7 @@ def report(out, p, results, mu):
         w(f" {k} = {p[k]:.12e}\n")
     w(f" rms do ajuste = {p['rms']:.3e} hartree\n\n")
 
-    ref = spectro_constants(results[0])       # J=0 constants feed Eq. 7 for both
+    ref = spectro_constants(results[0])   # J=0 constants feed alfae/gamae of J!=0
     for J, E in results.items():
         Ecm = E * CM
         w(f"J = {J}\n")
@@ -175,13 +263,15 @@ def report(out, p, results, mu):
         for i in range(len(Ecm) - 1):
             w(f"{i + 1:6d}   {Ecm[i + 1] - Ecm[i]:.13f}\n")
         we, wexe, weye = spectro_constants(E)
-        alfae, gamae = eq7_constants(E, *ref)
         w("\nCONSTANTES ESPECTROSCOPICAS\n" + "-" * 46 + "\n")
         w(f" WE(cm-1)   = {we:.13f}\n")
-        w(f" ALFAE(cm-1)= {alfae:.13e}\n")
         w(f" WEXE(cm-1) = {wexe:.13f}\n")
-        w(f" GAMAE(cm-1)= {gamae:.13e}\n")
-        w(f" WEYE(cm-1) = {weye:.13e}\n\n")
+        w(f" WEYE(cm-1) = {weye:.13e}\n")
+        if J:                       # alfae/gamae need the J=0 run's constants
+            alfae, gamae = alfae_gamae(E, *ref)
+            w(f" ALFAE(cm-1)= {alfae:.13e}   (com WE/WEXE/WEYE do J=0)\n")
+            w(f" GAMAE(cm-1)= {gamae:.13e}   (com WE/WEXE/WEYE do J=0)\n")
+        w("\n")
 
     alfae, gamae, Be, Bv = rot_constants(results[0], results[1])
     w("CONSTANTES ROTACIONAIS (de Bv = (E_v(J=1)-E_v(J=0))/2)\n" + "-" * 46 + "\n")
@@ -206,15 +296,16 @@ def _drop_box_states(E):
     return E if rising.size == 0 else E[:rising[0] + 2]
 
 
-def run_analysis(csv_path, mu, npoints=NPOINTS):
-    """Fit + diagonalize a (r, V) CSV. Grid = r-range, levels = bound states
-    below De (both auto). Returns (r, v, p, results, A, B)."""
-    r, v = load_csv(csv_path)
+def run_analysis(csv_path, mu, npoints=NPOINTS, r_unit=None, e_unit=None):
+    """Fit + diagonalize a (r, V) CSV. Units, grid (= r-range) and level count
+    (= bound states below De) are all automatic.
+    Returns (r, v, p, results, A, B, units) with r/v already in bohr/hartree."""
+    r, v, units = load_csv(csv_path, r_unit, e_unit)
     A, B = r[0], r[-1]
     p = fit_rydberg6(r, v)
     results = {J: _drop_box_states(solve(A, B, npoints, mu, p, J, 0.0, p["De"]))
                for J in (0, 1)}
-    return r, v, p, results, A, B
+    return r, v, p, results, A, B, units
 
 
 def main(argv=None):
@@ -225,6 +316,10 @@ def main(argv=None):
                    help="massa reduzida em massas de eletron")
     g.add_argument("--mass-amu", type=float, dest="mass_amu",
                    help="massa reduzida em amu (convertida x1822.88839)")
+    ap.add_argument("--r-unit", choices=sorted(R_TO_BOHR), dest="r_unit",
+                    help="unidade da coluna r (padrao: detecta do CSV)")
+    ap.add_argument("--e-unit", choices=sorted(E_TO_HARTREE), dest="e_unit",
+                    help="unidade da coluna V (padrao: detecta do CSV)")
     ap.add_argument("--no-pdf", action="store_true",
                     help="pula geracao do relatorio LaTeX/PDF")
     args = ap.parse_args(argv)
@@ -237,19 +332,30 @@ def main(argv=None):
         ap.error("informe a massa reduzida: --mass (massas de eletron) ou "
                  "--mass-amu (amu)")
 
-    r, v, p, results, A, B = run_analysis(args.csv, mu)
+    r, v, p, results, A, B, units = run_analysis(args.csv, mu,
+                                                 r_unit=args.r_unit,
+                                                 e_unit=args.e_unit)
 
     base = os.path.splitext(os.path.basename(args.csv))[0]
     txt = f"{base}_out.txt"
     with open(txt, "w") as f:
-        report(f, p, results, mu)
-    report(sys.stdout, p, results, mu)
-    print(f"\n[dvr] texto: {txt}   niveis: J=0 {len(results[0])}, "
+        report(f, p, results, mu, units)
+    report(sys.stdout, p, results, mu, units)
+    ru, eu, how = units
+    print(f"\n[dvr] unidades do CSV: r = {ru} ({how['r']}), "
+          f"V = {eu} ({how['E']})")
+    if how["r"] == "ambiguous":
+        print(f"[dvr] AVISO: nada no CSV diz a unidade de r, e Re = "
+              f"{r[np.argmin(v)]:.2f} bohr e plausivel tanto em bohr quanto em "
+              "angstrom. Assumi bohr. Se estiver errado, rode com "
+              "--r-unit angstrom (ou nomeie a coluna, ex. 'radii_bohr').",
+              file=sys.stderr)
+    print(f"[dvr] texto: {txt}   niveis: J=0 {len(results[0])}, "
           f"J=1 {len(results[1])}")
 
     if not args.no_pdf:
         import dvrreport
-        dvrreport.build_report(base, r, v, p, results, A, B, mu)
+        dvrreport.build_report(base, r, v, p, results, A, B, mu, units)
 
     return p, results
 

@@ -1,3 +1,8 @@
+UNIDADES DO CSV (convertidas para bohr/hartree)
+----------------------------------------------
+ r = bohr  (header)
+ V = hartree  (header)
+
 AJUSTE RYDBERG 6 (unidades atomicas)
 ----------------------------------------------
  Re (dist. equilibrio, bohr) = 14.536418004846
@@ -193,9 +198,7 @@ DIFERENCA ENTRE OS NIVEIS VIBRACIONAIS (cm-1)
 CONSTANTES ESPECTROSCOPICAS
 ----------------------------------------------
  WE(cm-1)   = 19.5434229234416
- ALFAE(cm-1)= -4.1219198193554e-15
  WEXE(cm-1) = 0.1900315807747
- GAMAE(cm-1)= -2.8106857119514e-15
  WEYE(cm-1) = -6.7105897882950e-04
 
 J = 1
@@ -380,10 +383,10 @@ DIFERENCA ENTRE OS NIVEIS VIBRACIONAIS (cm-1)
 CONSTANTES ESPECTROSCOPICAS
 ----------------------------------------------
  WE(cm-1)   = 19.5433945244785
- ALFAE(cm-1)= 1.4181982158731e-05
  WEXE(cm-1) = 0.1900317963580
- GAMAE(cm-1)= -1.2148685538853e-07
  WEYE(cm-1) = -6.7106506558821e-04
+ ALFAE(cm-1)= 1.4181982158731e-05   (com WE/WEXE/WEYE do J=0)
+ GAMAE(cm-1)= -1.2148685538853e-07   (com WE/WEXE/WEYE do J=0)
 
 CONSTANTES ROTACIONAIS (de Bv = (E_v(J=1)-E_v(J=0))/2)
 ----------------------------------------------

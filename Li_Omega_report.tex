@@ -8,6 +8,7 @@
 \begin{center}{\Large\bfseries Rovibrational analysis: Li\_Omega}\\[2pt]
 {\small Sinc-DVR (Colbert--Miller) + sixth-degree Rydberg potential}\end{center}
 \noindent Reduced mass $\mu = 12522.30592\ m_e$ (6.86949 amu). Grid: 500 sinc-DVR points on the CSV range. Level count is automatic: all bound states below $D_e$.
+ Input read in bohr / hartree (detected), converted to bohr / hartree.
 \vspace{4pt}
 \begin{table}[h]\centering\caption{Optimized sixth-degree Rydberg parameters (atomic units unless noted).}
 \begin{tabular}{l r}\toprule Parameter & Value \\\midrule
@@ -49,7 +50,7 @@ fit RMS (hartree) & 8.493e-06 \\
 17 & 6218.5150 & 6219.9021 & 6020.5124 & 309.4081 \\
 18 & 6527.9231 & 6529.2958 & 6329.9205 & 304.2790 \\
 19 & 6832.2021 & 6833.5601 & 6634.1995 & 299.1268 \\
-20 & 7131.3289 & 7132.6720 & 6933.3263 & 293.9525 \\
+20 & 7131.3289 & 7132.6720 & 6933.3264 & 293.9525 \\
 21 & 7425.2814 & 7426.6092 & 7227.2788 & 288.7568 \\
 22 & 7714.0382 & 7715.3504 & 7516.0356 & 283.5408 \\
 23 & 7997.5790 & 7998.8753 & 7799.5764 & 278.3059 \\
@@ -105,7 +106,7 @@ fit RMS (hartree) & 8.493e-06 \\
 73 & 16037.7626 & 16038.2120 & 15839.7600 & 70.0069 \\
 74 & 16107.7695 & 16108.2079 & 15909.7669 & 67.9831 \\
 75 & 16175.7525 & 16176.1802 & 15977.7500 & 66.0270 \\
-76 & 16241.7795 & 16242.1967 & 16043.7770 & 64.1368 \\
+76 & 16241.7795 & 16242.1968 & 16043.7770 & 64.1368 \\
 77 & 16305.9164 & 16306.3234 & 16107.9138 & 62.3107 \\
 78 & 16368.2271 & 16368.6242 & 16170.2245 & 60.5468 \\
 79 & 16428.7739 & 16429.1614 & 16230.7713 & 58.8432 \\
@@ -125,7 +126,7 @@ fit RMS (hartree) & 8.493e-06 \\
 93 & 17121.4627 & 17121.7434 & 16923.4601 & 41.4052 \\
 94 & 17162.8679 & 17163.1499 & 16964.8653 & -- \\
 \bottomrule\end{longtable}
-\begin{table}[h]\centering\caption{Spectroscopic constants (cm$^{-1}$), finite differences of the first levels (Eq.~7 of Silva \emph{et al.}, J. Mol. Model. \textbf{24}, 235, 2018).}
+\begin{table}[h]\centering\caption{Spectroscopic constants (cm$^{-1}$), from finite differences of the first vibrational levels. $\alpha_e$ and $\gamma_e$ combine the J=1 spacings with the $\omega_e$, $\omega_e x_e$, $\omega_e y_e$ of the J=0 run; $B_e$ comes from $B_v=(E_v(J{=}1)-E_v(J{=}0))/2$.}
 \begin{tabular}{l r r}\toprule Constant & J=0 & J=1 \\\midrule
 $\omega_e$ & 397.4348 & 397.4251 \\
 $\omega_e x_e$ & 2.33110 & 2.33122 \\
@@ -139,6 +140,8 @@ $\gamma_e$ & \multicolumn{2}{c}{-5.9286e-05} \\
 \caption{Potential energy curve: ab initio points, sixth-degree Rydberg fit, and the J=0 vibrational levels (green).}\end{figure}
 \begin{figure}[h]\centering\includegraphics[width=0.82\textwidth]{Li_Omega_assets/fiterror.pdf}
 \caption{Residual of the sixth-degree Rydberg fit, fit $-$ ab initio, over the whole grid.}\end{figure}
-\begin{figure}[h]\centering\includegraphics[width=0.9\textwidth]{Li_Omega_assets/spectrum.pdf}
-\caption{Vibrational spectrum: energy-level ladder (left) and the anharmonic decrease of the level spacing $\Delta E_v$ (right).}\end{figure}
+\begin{figure}[h]\centering\includegraphics[width=0.82\textwidth]{Li_Omega_assets/ladder.pdf}
+\caption{Vibrational energy-level ladder of the J=0 run: every bound state below $D_e$, labelled where the spacing allows.}\end{figure}
+\begin{figure}[h]\centering\includegraphics[width=0.82\textwidth]{Li_Omega_assets/spacing.pdf}
+\caption{Anharmonic decrease of the level spacing $\Delta E_v=E_{v+1}-E_v$ with $v$, up to dissociation.}\end{figure}
 \end{document}
