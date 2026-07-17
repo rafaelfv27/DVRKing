@@ -1,4 +1,4 @@
-# DVRpy
+# DVRKing
 
 Solver sinc-DVR para a equação de Schrödinger vibracional 1D de uma molécula diatômica
 (Colbert & Miller, *J. Chem. Phys.* **96**, 1982, 1992), em Python/NumPy/SciPy.
