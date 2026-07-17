@@ -1,9 +1,10 @@
 """Article-style LaTeX/PDF report for dvr.py.
 
 No physics here: consumes the fit params and eigenvalues dvr.py produces and
-renders (1) three figures mirroring the reference article -- the potential energy
-curve with its Rydberg-6 fit, the fit residual, and the vibrational spectrum --
-and (2) a LaTeX document with three tables, compiled to PDF via pdflatex.
+renders (1) four figures mirroring the reference article -- the potential energy
+curve with its Rydberg-6 fit, the fit residual, the vibrational level ladder and
+the level-spacing roll-off -- and (2) a LaTeX document with three tables,
+compiled to PDF via pdflatex.
 """
 import os
 import shutil
@@ -14,11 +15,13 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
+from matplotlib.transforms import blended_transform_factory
 
 import dvr
 
 BOHR_TO_ANG = 0.52917721067
 HARTREE_TO_KCAL = 627.509474
+FIGSIZE = (6.4, 4.6)     # every figure shares it; keep the \textwidth in sync
 
 plt.rcParams.update({
     "font.family": "serif",
@@ -45,14 +48,16 @@ def make_figures(r, v, p, results, A, B, assets):
     De_cm = p["De"] * dvr.CM
 
     # --- Fig 1: PEC + Ryd6 fit + vibrational levels ---
-    fig, ax = plt.subplots(figsize=(6.4, 4.6))
+    fig, ax = plt.subplots(figsize=FIGSIZE)
     ax.scatter(r, vrel, s=14, facecolors="none", edgecolors="tab:blue",
-               linewidths=0.9, label="ab initio (CSV)", zorder=3)
+               linewidths=0.9, label="ab initio", zorder=3)
     ax.plot(rr, fit_rel, color="tab:blue", lw=1.6,
             label="Rydberg-6 fit", zorder=2)
     ax.axhline(De_cm, ls=":", color="0.5", lw=0.9)
-    ax.text(B, De_cm, r"  $D_e$", va="center", ha="left", color="0.4",
-            fontsize=9)
+    # label pinned to the right spine, not to r=B: xlim is left to autoscale
+    ax.text(1.0, De_cm, r"  $D_e$", va="center", ha="left", color="0.4",
+            fontsize=9,
+            transform=blended_transform_factory(ax.transAxes, ax.transData))
     ax.axvline(p["Re"], ls=":", color="0.7", lw=0.8)
     # vibrational levels drawn across their classically allowed region
     for e in E0 * dvr.CM:
@@ -62,7 +67,8 @@ def make_figures(r, v, p, results, A, B, assets):
                       lw=0.5, alpha=0.6, zorder=1)
     ax.set_xlabel(r"$r$ (bohr)")
     ax.set_ylabel(r"$V(r)-V(R_e)$ (cm$^{-1}$)")
-    ax.set_xlim(A, B)
+    # no set_xlim here either (see Fig 2): default margins keep the end markers
+    # whole. ylim stays explicit -- it crops the repulsive wall on purpose.
     ax.set_ylim(-0.05 * De_cm, 1.15 * De_cm)
 
     # lower right is the one region no curve, level or D_e line reaches
@@ -75,12 +81,13 @@ def make_figures(r, v, p, results, A, B, assets):
 
     # --- Fig 2: fit error (own panel; a twin axis on Fig 1 buried it) ---
     resid = (_pec_curve(p, r) * dvr.CM) - vrel
-    fig, ax = plt.subplots(figsize=(6.4, 3.2))
+    fig, ax = plt.subplots(figsize=FIGSIZE)
     ax.axhline(0.0, color="0.6", lw=0.8)
     ax.plot(r, resid, "o-", color="tab:red", ms=3, lw=1.0)
     ax.set_xlabel(r"$r$ (bohr)")
     ax.set_ylabel(r"fit error (cm$^{-1}$)")
-    ax.set_xlim(A, B)
+    # no set_xlim: pinning it to (A, B) put the end markers half outside the
+    # spines. Default margins keep every marker whole for any point count.
     ax.set_title("Rydberg-6 fit error (fit $-$ ab initio), RMS = "
                  f"{p['rms'] * dvr.CM:.2f} " + r"cm$^{-1}$")
     ax.grid(True, ls=":", lw=0.5, alpha=0.6)
@@ -89,26 +96,39 @@ def make_figures(r, v, p, results, A, B, assets):
     fig.savefig(paths["err"]); fig.savefig(paths["err"][:-4] + ".png", dpi=300)
     plt.close(fig)
 
-    # --- Fig 3: vibrational spectrum (levels ladder + spacing roll-off) ---
-    fig, (axl, axc) = plt.subplots(1, 2, figsize=(7.6, 4.4))
+    # --- Fig 3: vibrational level ladder ---
     Ecm = E0 * dvr.CM
+    fig, ax = plt.subplots(figsize=FIGSIZE)
+    # Label only levels that clear MIN_GAP from the last labelled one: a fixed
+    # every-nth stride collides near dissociation, where the ladder bunches up.
+    min_gap = (Ecm[-1] - Ecm[0]) / 30.0
+    last = -np.inf
     for k, e in enumerate(Ecm):
-        axl.hlines(e, 0.1, 0.9, color="tab:blue", lw=1.0)
-        if k % max(1, len(Ecm) // 15) == 0:
-            axl.text(0.93, e, f"$v={k}$", va="center", fontsize=7, color="0.3")
-    axl.set_xlim(0, 1.25); axl.set_xticks([])
-    axl.set_ylabel(r"$E_v$ (cm$^{-1}$)")
-    axl.set_title("Vibrational levels (J=0)")
-
-    vv = np.arange(len(Ecm) - 1)
-    dE = np.diff(Ecm)
-    axc.plot(vv, dE, "o-", color="tab:purple", ms=4, lw=1.0)
-    axc.set_xlabel(r"$v$"); axc.set_ylabel(r"$\Delta E_v=E_{v+1}-E_v$ (cm$^{-1}$)")
-    axc.set_title("Level spacing (anharmonic roll-off)")
-    axc.grid(True, ls=":", lw=0.5, alpha=0.6)
+        ax.hlines(e, 0.1, 0.9, color="tab:blue", lw=1.0)
+        if e - last >= min_gap:
+            ax.text(0.93, e, f"$v={k}$", va="center", fontsize=7, color="0.3")
+            last = e
+    ax.set_xlim(0, 1.3); ax.set_xticks([])
+    ax.set_ylabel(r"$E_v$ (cm$^{-1}$)")
+    ax.set_title("Vibrational levels (J=0)")
     fig.tight_layout()
-    paths["spec"] = os.path.join(assets, "spectrum.pdf")
-    fig.savefig(paths["spec"]); fig.savefig(paths["spec"][:-4] + ".png", dpi=300)
+    paths["ladder"] = os.path.join(assets, "ladder.pdf")
+    fig.savefig(paths["ladder"])
+    fig.savefig(paths["ladder"][:-4] + ".png", dpi=300)
+    plt.close(fig)
+
+    # --- Fig 4: level spacing roll-off ---
+    fig, ax = plt.subplots(figsize=FIGSIZE)
+    ax.plot(np.arange(len(Ecm) - 1), np.diff(Ecm), "o-", color="tab:purple",
+            ms=4, lw=1.0)
+    ax.set_xlabel(r"$v$")
+    ax.set_ylabel(r"$\Delta E_v=E_{v+1}-E_v$ (cm$^{-1}$)")
+    ax.set_title("Level spacing (anharmonic roll-off)")
+    ax.grid(True, ls=":", lw=0.5, alpha=0.6)
+    fig.tight_layout()
+    paths["spacing"] = os.path.join(assets, "spacing.pdf")
+    fig.savefig(paths["spacing"])
+    fig.savefig(paths["spacing"][:-4] + ".png", dpi=300)
     plt.close(fig)
     return paths
 
@@ -126,7 +146,7 @@ def _enum(x, nd=6):
     return f"{x:.{nd}e}".replace("e", r"\mathrm{e}")
 
 
-def make_tex(base, p, results, figs, mu):
+def make_tex(base, p, results, figs, mu, units=None):
     c = dvr.all_constants(results)
     E0cm, E1cm = results[0] * dvr.CM, results[1] * dvr.CM
     n = max(len(E0cm), len(E1cm))
@@ -148,6 +168,10 @@ def make_tex(base, p, results, figs, mu):
     A(r"\noindent Reduced mass $\mu = %.5f\ m_e$ (%.5f amu). Grid: %d sinc-DVR "
       r"points on the CSV range. Level count is automatic: all bound states "
       r"below $D_e$." % (mu, mu / dvr.AMU_TO_ME, dvr.NPOINTS))
+    if units:
+        A(r" Input read in %s / %s (%s), converted to bohr / hartree."
+          % (_esc(units[0]), _esc(units[1]),
+             "detected" if "given" not in units[2].values() else "given"))
     A(r"\vspace{4pt}")
 
     # Table 1 -- Rydberg-6 parameters
@@ -183,8 +207,10 @@ def make_tex(base, p, results, figs, mu):
 
     # Table 3 -- spectroscopic constants
     A(r"\begin{table}[h]\centering\caption{Spectroscopic constants "
-      r"(cm$^{-1}$), finite differences of the first levels (Eq.~7 of "
-      r"Silva \emph{et al.}, J. Mol. Model. \textbf{24}, 235, 2018).}")
+      r"(cm$^{-1}$), from finite differences of the first vibrational levels. "
+      r"$\alpha_e$ and $\gamma_e$ combine the J=1 spacings with the "
+      r"$\omega_e$, $\omega_e x_e$, $\omega_e y_e$ of the J=0 run; $B_e$ "
+      r"comes from $B_v=(E_v(J{=}1)-E_v(J{=}0))/2$.}")
     A(r"\begin{tabular}{l r r}\toprule Constant & J=0 & J=1 \\\midrule")
     A(r"$\omega_e$ & %s & %s \\" % (_fnum(c["we"][0], 4), _fnum(c["we"][1], 4)))
     A(r"$\omega_e x_e$ & %s & %s \\"
@@ -205,11 +231,14 @@ def make_tex(base, p, results, figs, mu):
       % figs["err"].replace("\\", "/"))
     A(r"\caption{Residual of the sixth-degree Rydberg fit, fit $-$ ab initio, "
       r"over the whole grid.}\end{figure}")
-    A(r"\begin{figure}[h]\centering\includegraphics[width=0.9\textwidth]{%s}"
-      % figs["spec"].replace("\\", "/"))
-    A(r"\caption{Vibrational spectrum: energy-level ladder (left) and the "
-      r"anharmonic decrease of the level spacing $\Delta E_v$ (right).}"
-      r"\end{figure}")
+    A(r"\begin{figure}[h]\centering\includegraphics[width=0.82\textwidth]{%s}"
+      % figs["ladder"].replace("\\", "/"))
+    A(r"\caption{Vibrational energy-level ladder of the J=0 run: every bound "
+      r"state below $D_e$, labelled where the spacing allows.}\end{figure}")
+    A(r"\begin{figure}[h]\centering\includegraphics[width=0.82\textwidth]{%s}"
+      % figs["spacing"].replace("\\", "/"))
+    A(r"\caption{Anharmonic decrease of the level spacing "
+      r"$\Delta E_v=E_{v+1}-E_v$ with $v$, up to dissociation.}\end{figure}")
     A(r"\end{document}")
 
     tex = f"{base}_report.tex"
@@ -228,15 +257,15 @@ def _find_pdflatex():
     return guess if os.path.exists(guess) else None
 
 
-def build_report(base, r, v, p, results, A, B, mu):
+def build_report(base, r, v, p, results, A, B, mu, units=None):
     """Figures -> LaTeX -> PDF. Degrades gracefully if pdflatex is absent."""
     try:
         figs = make_figures(r, v, p, results, A, B, f"{base}_assets")
     except Exception as e:                       # never let plotting kill a run
         print(f"[dvr] aviso: figuras falharam ({e}); PDF sem figuras.",
               file=sys.stderr)
-        figs = {"pec": "", "err": "", "spec": ""}
-    tex = make_tex(base, p, results, figs, mu)
+        figs = {"pec": "", "err": "", "ladder": "", "spacing": ""}
+    tex = make_tex(base, p, results, figs, mu, units)
 
     exe = _find_pdflatex()
     if not exe:
