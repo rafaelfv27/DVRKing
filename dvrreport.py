@@ -134,8 +134,14 @@ def make_figures(r, v, p, results, A, B, assets):
 
 
 # --------------------------------------------------------------------- LaTeX
+_TEX_SPECIALS = {"\\": r"\textbackslash{}", "&": r"\&", "%": r"\%", "$": r"\$",
+                 "#": r"\#", "_": r"\_", "{": r"\{", "}": r"\}",
+                 "~": r"\textasciitilde{}", "^": r"\textasciicircum{}"}
+
+
 def _esc(s):
-    return str(s).replace("_", r"\_").replace("&", r"\&")
+    """LaTeX-escape a string (base is a filename, so it can hold anything)."""
+    return "".join(_TEX_SPECIALS.get(ch, ch) for ch in str(s))
 
 
 def _fnum(x, nd=6):
@@ -146,7 +152,7 @@ def _enum(x, nd=6):
     return f"{x:.{nd}e}".replace("e", r"\mathrm{e}")
 
 
-def make_tex(base, p, results, figs, mu, units=None):
+def make_tex(base, p, results, figs, mu, units=None, jmax=dvr.JMAX):
     c = dvr.all_constants(results)
     E0cm, E1cm = results[0] * dvr.CM, results[1] * dvr.CM
     n = max(len(E0cm), len(E1cm))
@@ -206,11 +212,13 @@ def make_tex(base, p, results, figs, mu, units=None):
     A(r"\bottomrule\end{longtable}")
 
     # Table 3 -- spectroscopic constants
+    a0, g0 = dvr.alfae_gamae(results[0], *dvr.spectro_constants(results[0]))
     A(r"\begin{table}[h]\centering\caption{Spectroscopic constants "
       r"(cm$^{-1}$), from finite differences of the first vibrational levels. "
-      r"$\alpha_e$ and $\gamma_e$ combine the J=1 spacings with the "
-      r"$\omega_e$, $\omega_e x_e$, $\omega_e y_e$ of the J=0 run; $B_e$ "
-      r"comes from $B_v=(E_v(J{=}1)-E_v(J{=}0))/2$.}")
+      r"$\alpha_e$ and $\gamma_e$ combine the spacings of each run with the "
+      r"$\omega_e$, $\omega_e x_e$, $\omega_e y_e$ of the J=0 run; only the "
+      r"J=1 column holds constants (see note). $B_e$ comes from "
+      r"$B_v=(E_v(J{=}1)-E_v(J{=}0))/2$.}")
     A(r"\begin{tabular}{l r r}\toprule Constant & J=0 & J=1 \\\midrule")
     A(r"$\omega_e$ & %s & %s \\" % (_fnum(c["we"][0], 4), _fnum(c["we"][1], 4)))
     A(r"$\omega_e x_e$ & %s & %s \\"
@@ -218,27 +226,67 @@ def make_tex(base, p, results, figs, mu, units=None):
     A(r"$\omega_e y_e$ & %.4e & %.4e \\" % (c["weye"][0], c["weye"][1]))
     A(r"\midrule")
     A(r"$B_e$ & \multicolumn{2}{c}{%s} \\" % _fnum(c["Be"], 6))
-    A(r"$\alpha_e$ & \multicolumn{2}{c}{%.4e} \\" % c["alfae"])
-    A(r"$\gamma_e$ & \multicolumn{2}{c}{%.4e} \\" % c["gamae"])
-    A(r"\bottomrule\end{tabular}\end{table}")
+    A(r"$\alpha_e$ & %.4e$^{\dagger}$ & %.4e \\" % (a0, c["alfae"]))
+    A(r"$\gamma_e$ & %.4e$^{\dagger}$ & %.4e \\" % (g0, c["gamae"]))
+    A(r"\bottomrule\end{tabular}")
+    A(r"\\[2pt]{\footnotesize $^{\dagger}$Consistency residual, not a "
+      r"constant. At J=0 the factor $J(J+1)$ vanishes and the "
+      r"$+4\omega_e-23\omega_ey_e$ of the formula cancels the vibrational "
+      r"part exactly, leaving $\sim$0. A value far from zero would mean the "
+      r"constants and the levels came from different runs --- which is what "
+      r"the legacy code printed, its $\omega_e$ being hardcoded from an "
+      r"earlier run.}")
+    A(r"\end{table}")
 
-    # Figures
-    A(r"\begin{figure}[h]\centering\includegraphics[width=0.82\textwidth]{%s}"
-      % figs["pec"].replace("\\", "/"))
-    A(r"\caption{Potential energy curve: ab initio points, sixth-degree "
-      r"Rydberg fit, and the J=0 vibrational levels (green).}\end{figure}")
-    A(r"\begin{figure}[h]\centering\includegraphics[width=0.82\textwidth]{%s}"
-      % figs["err"].replace("\\", "/"))
-    A(r"\caption{Residual of the sixth-degree Rydberg fit, fit $-$ ab initio, "
-      r"over the whole grid.}\end{figure}")
-    A(r"\begin{figure}[h]\centering\includegraphics[width=0.82\textwidth]{%s}"
-      % figs["ladder"].replace("\\", "/"))
-    A(r"\caption{Vibrational energy-level ladder of the J=0 run: every bound "
-      r"state below $D_e$, labelled where the spacing allows.}\end{figure}")
-    A(r"\begin{figure}[h]\centering\includegraphics[width=0.82\textwidth]{%s}"
-      % figs["spacing"].replace("\\", "/"))
-    A(r"\caption{Anharmonic decrease of the level spacing "
-      r"$\Delta E_v=E_{v+1}-E_v$ with $v$, up to dissociation.}\end{figure}")
+    # Table 4 -- Dunham extrapolation to arbitrary J (Baggio 2017, eqs. 5/6/10)
+    vmax, vmax_ok = dvr.vmax_cutoffs(c, De_cm)
+    dev = dvr.dunham(np.arange(len(E0cm)), 0, c) - E0cm
+    A(r"\vspace{2pt}\noindent Rovibrational levels for arbitrary $J$ follow "
+      r"Dunham's expansion,")
+    A(r"\begin{equation*}\varepsilon_{v,J}=\omega_e(v+\tfrac12)"
+      r"-\omega_ex_e(v+\tfrac12)^2+\omega_ey_e(v+\tfrac12)^3"
+      r"+\left[B_e-\alpha_e(v+\tfrac12)+\gamma_e(v+\tfrac12)^2\right]J(J+1),"
+      r"\end{equation*}")
+    A(r"\noindent so the DVR is diagonalized at $J=0$ and $J=1$ only and every "
+      r"higher $J$ is extrapolated. Over the %d DVR levels the expansion "
+      r"deviates by at most %.4f cm$^{-1}$ (rms %.4f), the cubic in $v$ being "
+      r"fixed by the first four levels alone. Summation limits: "
+      r"$v_{max}=%d$ from $\varepsilon_{v,0}<D_e$, and $v_{max}=%d$ from "
+      r"$B_v>0$, the condition for the Euler--Maclaurin rotational integral to "
+      r"converge.\vspace{4pt}"
+      % (len(E0cm), np.abs(dev).max(), np.sqrt(np.mean(dev**2)),
+         vmax, vmax_ok))
+    jj = list(range(jmax + 1))
+    A(r"\begin{longtable}{r %s}" % ("r " * len(jj)))
+    A(r"\caption{Rovibrational energies $\varepsilon_{v,J}$ (cm$^{-1}$) from "
+      r"Dunham's expansion, up to $v_{max}=%d$.}\\" % vmax)
+    hdr = r"\toprule $v$ & " + " & ".join(r"$J=%d$" % j for j in jj) + \
+        r" \\\midrule"
+    A(hdr + r"\endfirsthead")
+    A(hdr + r"\endhead")
+    for vq in range(vmax + 1):
+        A(r"%d & %s \\" % (vq, " & ".join(_fnum(dvr.dunham(vq, j, c), 4)
+                                          for j in jj)))
+    A(r"\bottomrule\end{longtable}")
+
+    # Figures. A missing key is skipped whole: an empty \includegraphics{} is a
+    # fatal LaTeX error, which would cost the tables too when plotting failed.
+    def figure(key, caption):
+        if not figs.get(key):
+            return
+        A(r"\begin{figure}[h]\centering"
+          r"\includegraphics[width=0.82\textwidth]{%s}"
+          % figs[key].replace("\\", "/"))
+        A(r"\caption{%s}\end{figure}" % caption)
+
+    figure("pec", r"Potential energy curve: ab initio points, sixth-degree "
+           r"Rydberg fit, and the J=0 vibrational levels (green).")
+    figure("err", r"Residual of the sixth-degree Rydberg fit, fit $-$ ab "
+           r"initio, over the whole grid.")
+    figure("ladder", r"Vibrational energy-level ladder of the J=0 run: every "
+           r"bound state below $D_e$, labelled where the spacing allows.")
+    figure("spacing", r"Anharmonic decrease of the level spacing "
+           r"$\Delta E_v=E_{v+1}-E_v$ with $v$, up to dissociation.")
     A(r"\end{document}")
 
     tex = f"{base}_report.tex"
@@ -257,15 +305,15 @@ def _find_pdflatex():
     return guess if os.path.exists(guess) else None
 
 
-def build_report(base, r, v, p, results, A, B, mu, units=None):
+def build_report(base, r, v, p, results, A, B, mu, units=None, jmax=dvr.JMAX):
     """Figures -> LaTeX -> PDF. Degrades gracefully if pdflatex is absent."""
     try:
         figs = make_figures(r, v, p, results, A, B, f"{base}_assets")
     except Exception as e:                       # never let plotting kill a run
-        print(f"[dvr] aviso: figuras falharam ({e}); PDF sem figuras.",
+        print(f"[dvr] aviso: figuras falharam ({e}); PDF so com as tabelas.",
               file=sys.stderr)
-        figs = {"pec": "", "err": "", "ladder": "", "spacing": ""}
-    tex = make_tex(base, p, results, figs, mu, units)
+        figs = {}                                # make_tex omits every figure
+    tex = make_tex(base, p, results, figs, mu, units, jmax)
 
     exe = _find_pdflatex()
     if not exe:
