@@ -1,11 +1,10 @@
 # DVRpy
 
 Solver sinc-DVR para a equação de Schrödinger vibracional 1D de uma molécula diatômica
-(Colbert & Miller, *J. Chem. Phys.* **96**, 1982, 1992).
+(Colbert & Miller, *J. Chem. Phys.* **96**, 1982, 1992), em Python/NumPy/SciPy.
 
-Porte em Python/NumPy/SciPy do programa Fortran 77 `DVR.f` (J.J. Soares Neto, 1995), mantido
-no repositório como referência. A biblioteca Lanczos STLM do original (~6300 linhas) foi
-substituída por `scipy.linalg.eigh`.
+Dá a ele uma curva de energia potencial e ele devolve os níveis vibracionais, o espectro e as
+constantes espectroscópicas.
 
 ## O que o script faz
 
@@ -23,12 +22,13 @@ Pipeline (`dvr.py`):
 3. **Monta o Hamiltoniano DVR** numa grade uniforme de 500 pontos cobrindo o intervalo de `r`
    do CSV. Energia cinética pelas fórmulas analíticas de Colbert-Miller (partícula na caixa);
    potencial na diagonal.
-4. **Diagonaliza** para J=0 e J=1 (o termo centrífugo `J(J+1)/2μr²` entra no potencial).
-   Todos os estados ligados abaixo de `De` são retornados — o número de níveis é automático,
-   não é um parâmetro. Níveis espúrios de "caixa" perto do limiar são descartados.
+4. **Diagonaliza** (`scipy.linalg.eigh`) para J=0 e J=1 — o termo centrífugo `J(J+1)/2μr²`
+   entra no potencial. Todos os estados ligados abaixo de `De` são retornados: o número de
+   níveis é automático, não é um parâmetro. Níveis espúrios de "caixa" perto do limiar são
+   descartados.
 5. **Calcula as constantes**: `we, wexe, weye` das diferenças dos 4 primeiros níveis;
-   `alfae, gamae` pela metodologia dos dois runs do legado (constantes de J=0 + espaçamentos
-   de J=1); `Be` e `Bv` de `Bv = (E_v(J=1) − E_v(J=0))/2`.
+   `alfae, gamae` combinando as constantes de J=0 com os espaçamentos de J=1; `Be` e `Bv` de
+   `Bv = (E_v(J=1) − E_v(J=0))/2`.
 6. **Escreve** `<nome>_out.txt` e, por padrão, um relatório LaTeX/PDF `<nome>_report.pdf`
    com três tabelas e quatro figuras (curva de energia potencial + ajuste, resíduo do ajuste,
    escada de níveis, roll-off dos espaçamentos) — `dvrreport.py`.
@@ -80,10 +80,10 @@ detecção. Unidades aceitas: `r` em `bohr`/`angstrom`; `V` em `hartree`, `cm-1`
 python -m pytest test_dvr.py
 ```
 
-Regressão contra o run de referência do `DVR.exe` legado (`potential.csv` são os 500 pontos
-(r, V) que ele registrou): o núcleo DVR reproduz os autovalores do `fort.4` em 1e-6 cm⁻¹, e o
-caminho completo (CSV → ajuste → níveis) em 0.1 cm⁻¹ — limitado pelo ajuste, já que os dados
-legados desviam de um Rydberg-6 perfeito por rms 1.2e-7 hartree.
+Regressão contra os autovalores e o `we` de referência fixados no próprio `test_dvr.py`, para a
+curva de `potential.csv`. O núcleo DVR os reproduz em 1e-6 cm⁻¹; o caminho completo
+(CSV → ajuste → níveis) em 0.1 cm⁻¹ — limitado pelo ajuste, já que aqueles dados desviam de um
+Rydberg-6 perfeito por rms 1.2e-7 hartree.
 
 ## Arquivos
 
@@ -91,16 +91,12 @@ legados desviam de um Rydberg-6 perfeito por rms 1.2e-7 hartree.
 |---|---|
 | `dvr.py` | solver: leitura do CSV, ajuste, Hamiltoniano, diagonalização, constantes |
 | `dvrreport.py` | figuras e relatório LaTeX/PDF (sem física) |
-| `test_dvr.py` | regressão vs. o legado |
-| `DVR.f`, `DVR.exe` | programa Fortran original (referência) |
+| `test_dvr.py` | testes de regressão |
 | `Li_Omega.csv` | curva Li–C70 (μ = 6.884168 amu) |
-| `potential.csv` | curva do run de referência do legado |
-| `wiki/` | documentação do código Fortran e do plano de porte |
+| `potential.csv` | curva usada nos testes |
 
 ## Notas
 
-- Unidades internas atômicas; energias convertidas com 219474.631 (hartree → cm⁻¹), o literal
-  do legado, mantido para a regressão.
-- O `fort.4` do legado imprimia os níveis com esse fator em precisão simples (219474.625) — o
-  teste desfaz isso antes de comparar. Ver `wiki/Bugs Legados.md`.
+- Unidades internas atômicas; energias convertidas com 219474.631 (hartree → cm⁻¹) e massas
+  com 1822.88839 (amu → massas de elétron).
 - `alfae`/`gamae` só são definidos para J ≠ 0; ver `nota_alfae_gamae.pdf`.
