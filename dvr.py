@@ -2,7 +2,9 @@
 
 Pipeline: CSV (r, V) -> fit extended Rydberg order 6 -> DVR Hamiltonian
 (Colbert-Miller) -> eigenvalues -> spectrum, level differences and
-spectroscopic constants (we, wexe, weye, alfae, gamae) for J=0 and J=1.
+spectroscopic constants (we, wexe, weye, alfae, gamae) for J=0 and J=1, then
+Dunham's expansion for arbitrary J and the rovibrational partition function
+with U, Cv, S and G over a temperature grid.
 
 Everything but the reduced mass is derived from the CSV: grid = r-range,
 level count = all bound states below the fitted De. Each run also builds an
@@ -22,6 +24,10 @@ CM = 219474.631      # hartree -> cm-1 (legacy literal, keep for regression)
 AMU_TO_ME = 1822.88839   # amu -> electron masses (legacy literal)
 NPOINTS = 500        # DVR grid size; dense enough, matches legacy reference run
 JMAX = 5             # highest J tabulated from Dunham's expansion (--jmax)
+C2 = 1.4387768775    # hc/k, cm*K (second radiation constant): eps[cm-1]/T -> beta
+RGAS = 8.314462618   # J/(mol K)
+TEMPS = (100.0, 200.0, 298.15, 300.0, 400.0, 500.0, 600.0, 700.0, 800.0,
+         900.0, 1000.0)   # default temperature grid for the thermo table
 
 # ------------------------------------------------------------------- units
 # The DVR runs in bohr/hartree; a CSV may arrive in anything. Factors -> a.u.
@@ -266,6 +272,50 @@ def vmax_cutoffs(c, De_cm, vcap=999):
     return vmax, min(vmax, vpos)
 
 
+def thermo(T, c, vmax, jcap=20000):
+    """Rovibrational partition function and thermodynamics of the diatomic.
+
+        Q(T) = sum_{v=0}^{vmax} sum_J (2J+1) exp(-[eps(v,J)-eps(0,0)]*C2/T)
+
+    The double sum is explicit over the Dunham levels -- no Euler-Maclaurin, so
+    nothing here assumes T is high enough for the rotational integral to stand
+    in for the sum. `vmax` must still be the eq.-10 cutoff of vmax_cutoffs():
+    past it B_v < 0, eps falls with J, and the J sum diverges rather than
+    converging (the same divergence Euler-Maclaurin runs into, just visible one
+    step earlier).
+
+    Zero of energy is the lowest level eps(0,0), so Q -> 1, U -> 0 and S -> 0 as
+    T -> 0. Everything returned is internal (rovibrational) and per mole: no
+    translation, no electronic degeneracy, no pV term, so H == U and G == A.
+
+    Returns arrays over T: Q, U (J/mol), Cv (J/mol/K), S (J/mol/K), G (J/mol).
+    """
+    T = np.atleast_1d(np.asarray(T, dtype=float))
+    if T.min() <= 0:
+        raise ValueError("temperatures must be > 0 K")
+    v = np.arange(vmax + 1)
+    Bmin = Bv_dunham(v, c).min()
+    if Bmin <= 0:
+        raise ValueError("B_v <= 0 within v <= vmax; pass the eq.-10 cutoff "
+                         "(vmax_cutoffs()[1]), not the dissociation one")
+    # Truncate J where the slowest-decaying term (smallest B_v, highest T) is
+    # dead: B_v*J(J+1)*C2/T = 40 puts exp(-40) ~ 4e-18 below the v=0,J=0 term.
+    Jmax = min(int(np.sqrt(40.0 * T.max() / (C2 * Bmin))) + 10, jcap)
+    J = np.arange(Jmax + 1)
+    eps = dunham(v[:, None], J[None, :], c) - dunham(0, 0, c)     # (v, J)
+    w = (2 * J + 1.0)[None, :] * np.exp(-(C2 / T[:, None, None]) * eps)
+    Q = w.sum(axis=(1, 2))
+    # <eps> and <eps^2> give U and Cv analytically: U/R = C2*<eps>,
+    # Cv/R = (C2/T)^2 * var(eps). No finite differences in T.
+    e1 = (w * eps).sum(axis=(1, 2)) / Q
+    e2 = (w * eps**2).sum(axis=(1, 2)) / Q
+    return {"T": T, "Q": Q, "Jmax": Jmax,
+            "U": RGAS * C2 * e1,
+            "Cv": RGAS * (C2 / T) ** 2 * (e2 - e1**2),
+            "S": RGAS * (np.log(Q) + C2 * e1 / T),
+            "G": -RGAS * T * np.log(Q)}
+
+
 def all_constants(results):
     """Every spectroscopic constant (cm-1) as a dict, for text + PDF report."""
     we0, wexe0, weye0 = spectro_constants(results[0])
@@ -278,7 +328,7 @@ def all_constants(results):
             "Be": Be, "alfae": alfae, "gamae": gamae, "Bv": Bv}
 
 
-def report(out, p, results, units=None, jmax=JMAX):
+def report(out, p, results, units=None, jmax=JMAX, temps=TEMPS):
     w = out.write
     if units:
         ru, eu, how = units
@@ -351,6 +401,23 @@ def report(out, p, results, units=None, jmax=JMAX):
     for vq in range(vmax + 1):
         w(f"{vq:6d}" + "".join(f"{dunham(vq, j, c):17.6f}" for j in jj) + "\n")
 
+    if temps is not None and len(temps):
+        t = thermo(temps, c, vmax_ok)
+        w("\nFUNCAO DE PARTICAO E TERMODINAMICA ROVIBRACIONAL\n" + "-" * 46
+          + "\n")
+        w(" Q(T) = soma_v soma_J (2J+1) exp(-[eps(v,J)-eps(0,0)]*hc/kT),\n")
+        w(f" soma dupla explicita ate v = {vmax_ok} (eq. 10, Bv > 0) e "
+          f"J = {t['Jmax']}.\n")
+        w(" Zero em eps(0,0): Q->1, U->0, S->0 quando T->0. Contribuicao\n")
+        w(" rovibracional apenas -- sem translacao, sem eletronica, sem pV\n")
+        w(" (entao H = U e G = A).\n\n")
+        w(f"{'T (K)':>9}{'Q':>15}{'U (kJ/mol)':>14}{'Cv (J/mol/K)':>15}"
+          f"{'S (J/mol/K)':>14}{'G (kJ/mol)':>14}\n")
+        for i, tt in enumerate(t["T"]):
+            w(f"{tt:9.2f}{t['Q'][i]:15.6e}{t['U'][i] / 1000:14.6f}"
+              f"{t['Cv'][i]:15.6f}{t['S'][i]:14.6f}"
+              f"{t['G'][i] / 1000:14.6f}\n")
+
 
 # --------------------------------------------------------------------- main
 def _drop_box_states(E):
@@ -393,9 +460,16 @@ def main(argv=None):
     ap.add_argument("--jmax", type=int, default=JMAX,
                     help=f"maior J tabulado por Dunham (padrao: {JMAX}). O DVR "
                          "so roda em J=0 e 1; o resto e extrapolado pela eq. 5")
+    ap.add_argument("--temps", type=str, default=None,
+                    help="temperaturas (K) da tabela termodinamica, separadas "
+                         f"por virgula (padrao: {TEMPS[0]:g}..{TEMPS[-1]:g}). "
+                         "Vazio (--temps '') pula a tabela")
     ap.add_argument("--no-pdf", action="store_true",
                     help="pula geracao do relatorio LaTeX/PDF")
     args = ap.parse_args(argv)
+
+    temps = TEMPS if args.temps is None else tuple(
+        float(x) for x in args.temps.replace(",", " ").split())
 
     if args.mass_amu is not None:
         mu = args.mass_amu * AMU_TO_ME
@@ -412,8 +486,8 @@ def main(argv=None):
     base = os.path.splitext(os.path.basename(args.csv))[0]
     txt = f"{base}_out.txt"
     with open(txt, "w") as f:
-        report(f, p, results, units, args.jmax)
-    report(sys.stdout, p, results, units, args.jmax)
+        report(f, p, results, units, args.jmax, temps)
+    report(sys.stdout, p, results, units, args.jmax, temps)
     ru, eu, how = units
     print(f"\n[dvr] unidades do CSV: r = {ru} ({how['r']}), "
           f"V = {eu} ({how['E']})")
@@ -435,7 +509,7 @@ def main(argv=None):
     if not args.no_pdf:
         import dvrreport
         dvrreport.build_report(base, r, v, p, results, A, B, mu, units,
-                               args.jmax)
+                               args.jmax, temps)
 
     return p, results
 
