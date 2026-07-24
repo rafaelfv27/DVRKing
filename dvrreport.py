@@ -152,7 +152,8 @@ def _enum(x, nd=6):
     return f"{x:.{nd}e}".replace("e", r"\mathrm{e}")
 
 
-def make_tex(base, p, results, figs, mu, units=None, jmax=dvr.JMAX):
+def make_tex(base, p, results, figs, mu, units=None, jmax=dvr.JMAX,
+             temps=dvr.TEMPS):
     c = dvr.all_constants(results)
     E0cm, E1cm = results[0] * dvr.CM, results[1] * dvr.CM
     n = max(len(E0cm), len(E1cm))
@@ -269,6 +270,33 @@ def make_tex(base, p, results, figs, mu, units=None, jmax=dvr.JMAX):
                                           for j in jj)))
     A(r"\bottomrule\end{longtable}")
 
+    # Table 5 -- partition function and thermodynamics
+    if temps is not None and len(temps):
+        t = dvr.thermo(temps, c, vmax_ok)
+        A(r"\vspace{2pt}\noindent The rovibrational partition function is the "
+          r"explicit double sum over those levels,")
+        A(r"\begin{equation*}Q(T)=\sum_{v=0}^{v_{max}}\sum_{J}(2J+1)"
+          r"\exp\!\left[-\frac{hc\,(\varepsilon_{v,J}-\varepsilon_{0,0})}"
+          r"{k_BT}\right],\end{equation*}")
+        A(r"\noindent truncated at $v_{max}=%d$ (the $B_v>0$ limit) and $J=%d$, "
+          r"where the slowest-decaying term is already $\sim e^{-40}$. The zero "
+          r"is $\varepsilon_{0,0}$, so $Q\to1$, $U\to0$ and $S\to0$ as $T\to0$. "
+          r"$U$, $C_v$, $S$ and $G$ follow from $\langle\varepsilon\rangle$ and "
+          r"its variance, and are rovibrational only --- no translation, no "
+          r"electronic degeneracy and no $pV$ term, so $H=U$ and $G=A$."
+          r"\vspace{4pt}" % (vmax_ok, t["Jmax"]))
+        A(r"\begin{table}[h]\centering\caption{Rovibrational partition function "
+          r"and thermodynamic functions per mole.}")
+        A(r"\begin{tabular}{r r r r r r}\toprule $T$ (K) & $Q$ & "
+          r"$U$ (kJ mol$^{-1}$) & $C_v$ (J mol$^{-1}$K$^{-1}$) & "
+          r"$S$ (J mol$^{-1}$K$^{-1}$) & $G$ (kJ mol$^{-1}$) \\\midrule")
+        for i, tt in enumerate(t["T"]):
+            A(r"%.2f & %.4e & %s & %s & %s & %s \\"
+              % (tt, t["Q"][i], _fnum(t["U"][i] / 1000, 4),
+                 _fnum(t["Cv"][i], 4), _fnum(t["S"][i], 4),
+                 _fnum(t["G"][i] / 1000, 4)))
+        A(r"\bottomrule\end{tabular}\end{table}")
+
     # Figures. A missing key is skipped whole: an empty \includegraphics{} is a
     # fatal LaTeX error, which would cost the tables too when plotting failed.
     def figure(key, caption):
@@ -305,7 +333,8 @@ def _find_pdflatex():
     return guess if os.path.exists(guess) else None
 
 
-def build_report(base, r, v, p, results, A, B, mu, units=None, jmax=dvr.JMAX):
+def build_report(base, r, v, p, results, A, B, mu, units=None, jmax=dvr.JMAX,
+                 temps=dvr.TEMPS):
     """Figures -> LaTeX -> PDF. Degrades gracefully if pdflatex is absent."""
     try:
         figs = make_figures(r, v, p, results, A, B, f"{base}_assets")
@@ -313,7 +342,7 @@ def build_report(base, r, v, p, results, A, B, mu, units=None, jmax=dvr.JMAX):
         print(f"[dvr] aviso: figuras falharam ({e}); PDF so com as tabelas.",
               file=sys.stderr)
         figs = {}                                # make_tex omits every figure
-    tex = make_tex(base, p, results, figs, mu, units, jmax)
+    tex = make_tex(base, p, results, figs, mu, units, jmax, temps)
 
     exe = _find_pdflatex()
     if not exe:
